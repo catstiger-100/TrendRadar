@@ -813,6 +813,7 @@ class NewsAnalyzer:
             global_filters=global_filters,
             quiet=quiet,
         )
+        screen_stats = [stat.copy() for stat in stats]
 
         # 如果是 platform 模式，转换数据结构
         if self.ctx.display_mode == "platform" and stats:
@@ -850,6 +851,7 @@ class NewsAnalyzer:
                 rss_new_items=rss_new_items,
                 ai_analysis=ai_result,
                 standalone_data=standalone_data,
+                screen_stats=screen_stats,
             )
 
         return stats, html_file, ai_result

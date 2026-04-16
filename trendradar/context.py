@@ -30,6 +30,8 @@ from trendradar.report import (
     prepare_report_data,
     generate_html_report,
     render_html_content,
+    render_screen_content,
+    build_screen_payload,
 )
 from trendradar.notification import (
     render_feishu_content,
@@ -296,6 +298,7 @@ class AppContext:
         rss_new_items: Optional[List[Dict]] = None,
         ai_analysis: Optional[Any] = None,
         standalone_data: Optional[Dict] = None,
+        screen_stats: Optional[List[Dict]] = None,
     ) -> str:
         """生成HTML报告"""
         return generate_html_report(
@@ -311,8 +314,17 @@ class AppContext:
             date_folder=self.format_date(),
             time_filename=self.format_time(),
             render_html_func=lambda *args, **kwargs: self.render_html(*args, rss_items=rss_items, rss_new_items=rss_new_items, ai_analysis=ai_analysis, standalone_data=standalone_data, **kwargs),
+            render_screen_func=lambda *args, **kwargs: self.render_screen(*args, rss_items=rss_items, ai_analysis=ai_analysis, **kwargs),
+            build_screen_data_func=lambda report_data, total_titles, mode, update_info=None: self.build_screen_data(
+                report_data,
+                total_titles,
+                mode=mode,
+                rss_items=rss_items,
+                ai_analysis=ai_analysis,
+            ),
             matches_word_groups_func=self.matches_word_groups,
             load_frequency_words_func=self.load_frequency_words,
+            screen_stats=screen_stats,
         )
 
     def render_html(
@@ -340,6 +352,47 @@ class AppContext:
             ai_analysis=ai_analysis,
             show_new_section=self.show_new_section,
             standalone_data=standalone_data,
+        )
+
+    def render_screen(
+        self,
+        report_data: Dict,
+        total_titles: int,
+        mode: str = "daily",
+        update_info: Optional[Dict] = None,
+        rss_items: Optional[List[Dict]] = None,
+        ai_analysis: Optional[Any] = None,
+    ) -> str:
+        """渲染实时大屏内容"""
+        return render_screen_content(
+            report_data=report_data,
+            total_titles=total_titles,
+            mode=mode,
+            get_time_func=self.get_time,
+            rss_items=rss_items,
+            ai_analysis=ai_analysis,
+            rank_threshold=self.rank_threshold,
+            weight_config=self.weight_config,
+        )
+
+    def build_screen_data(
+        self,
+        report_data: Dict,
+        total_titles: int,
+        mode: str = "daily",
+        rss_items: Optional[List[Dict]] = None,
+        ai_analysis: Optional[Any] = None,
+    ) -> Dict:
+        """构建实时大屏数据载荷"""
+        return build_screen_payload(
+            report_data=report_data,
+            total_titles=total_titles,
+            mode=mode,
+            get_time_func=self.get_time,
+            rss_items=rss_items,
+            ai_analysis=ai_analysis,
+            rank_threshold=self.rank_threshold,
+            weight_config=self.weight_config,
         )
 
     # === 通知内容渲染 ===

@@ -7,6 +7,7 @@
 - generate_html_report: 生成 HTML 报告
 """
 
+import json
 from pathlib import Path
 from typing import Dict, List, Optional, Callable
 
@@ -152,8 +153,11 @@ def generate_html_report(
     date_folder: str = "",
     time_filename: str = "",
     render_html_func: Optional[Callable] = None,
+    render_screen_func: Optional[Callable] = None,
+    build_screen_data_func: Optional[Callable] = None,
     matches_word_groups_func: Optional[Callable] = None,
     load_frequency_words_func: Optional[Callable] = None,
+    screen_stats: Optional[List[Dict]] = None,
 ) -> str:
     """
     生成 HTML 报告
@@ -202,7 +206,7 @@ def generate_html_report(
         load_frequency_words_func,
     )
 
-    # 渲染 HTML 内容
+    # 渲染主 HTML 内容
     if render_html_func:
         html_content = render_html_func(
             report_data, total_titles, mode, update_info
@@ -210,6 +214,24 @@ def generate_html_report(
     else:
         # 默认简单 HTML
         html_content = f"<html><body><h1>Report</h1><pre>{report_data}</pre></body></html>"
+
+    screen_report_data = report_data
+    if screen_stats is not None:
+        screen_report_data = {
+            **report_data,
+            "stats": screen_stats,
+        }
+
+    screen_content = None
+    screen_payload = None
+    if render_screen_func:
+        screen_content = render_screen_func(
+            screen_report_data, total_titles, mode, update_info
+        )
+    if build_screen_data_func:
+        screen_payload = build_screen_data_func(
+            screen_report_data, total_titles, mode
+        )
 
     # 1. 保存时间戳快照（历史记录）
     with open(snapshot_file, "w", encoding="utf-8") as f:
@@ -232,5 +254,43 @@ def generate_html_report(
     root_index = Path("index.html")
     with open(root_index, "w", encoding="utf-8") as f:
         f.write(html_content)
+
+    # 4. 输出大屏 screen.html（入口 + 快照）
+    if screen_content is not None:
+        output_screen = Path(output_dir) / "screen.html"
+        with open(output_screen, "w", encoding="utf-8") as f:
+            f.write(screen_content)
+
+        latest_screen = latest_dir / "screen.html"
+        with open(latest_screen, "w", encoding="utf-8") as f:
+            f.write(screen_content)
+
+        root_screen = Path("screen.html")
+        with open(root_screen, "w", encoding="utf-8") as f:
+            f.write(screen_content)
+
+        screen_snapshot_file = snapshot_path / f"{time_filename}-screen.html"
+        with open(screen_snapshot_file, "w", encoding="utf-8") as f:
+            f.write(screen_content)
+
+    # 5. 输出大屏数据 screen-data.json（供静默刷新）
+    if screen_payload is not None:
+        payload_text = json.dumps(screen_payload, ensure_ascii=False, indent=2)
+
+        output_screen_data = Path(output_dir) / "screen-data.json"
+        with open(output_screen_data, "w", encoding="utf-8") as f:
+            f.write(payload_text)
+
+        latest_screen_data = latest_dir / "screen-data.json"
+        with open(latest_screen_data, "w", encoding="utf-8") as f:
+            f.write(payload_text)
+
+        root_screen_data = Path("screen-data.json")
+        with open(root_screen_data, "w", encoding="utf-8") as f:
+            f.write(payload_text)
+
+        screen_snapshot_data = snapshot_path / f"{time_filename}-screen-data.json"
+        with open(screen_snapshot_data, "w", encoding="utf-8") as f:
+            f.write(payload_text)
 
     return snapshot_file
