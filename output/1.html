@@ -1,0 +1,1907 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>恒银智能舆情监控</title>
+  <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/7.0.1/css/all.min.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <style>
+    :root {
+      --bg-core: #050a1a;
+      --bg-edge: #0d1136;
+      --panel-bg: rgba(10, 15, 40, 0.7);
+      --panel-strong: rgba(8, 13, 34, 0.92);
+      --panel-soft: rgba(12, 18, 46, 0.62);
+      --line: rgba(0, 212, 255, 0.12);
+      --line-strong: rgba(0, 212, 255, 0.4);
+      --primary: #00d4ff;
+      --amber: #f0a500;
+      --purple: #a855f7;
+      --teal: #22d3ee;
+      --danger: #ff6b6b;
+      --text: #e8e8f0;
+      --text-soft: #c0c0d8;
+      --text-muted: #7b7b9e;
+      --text-faint: #4a4a6a;
+      --mono: 'JetBrains Mono', 'Courier New', monospace;
+      --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --shadow: 0 0 24px rgba(0, 212, 255, 0.15);
+      --shadow-strong: 0 16px 40px rgba(0, 0, 0, 0.32);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: radial-gradient(circle at 50% 40%, rgba(16, 29, 89, 0.42), transparent 42%), linear-gradient(135deg, var(--bg-core), var(--bg-edge));
+      color: var(--text);
+      font-family: var(--sans);
+    }
+
+    body {
+      position: relative;
+      padding: 16px;
+      letter-spacing: 0.01em;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    body::before,
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    body::before {
+      background-image:
+        linear-gradient(rgba(0, 180, 255, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 180, 255, 0.04) 1px, transparent 1px);
+      background-size: 20px 20px;
+      opacity: 0.65;
+    }
+
+    body::after {
+      background:
+        radial-gradient(circle at 12% 18%, rgba(0, 212, 255, 0.13) 0 2px, transparent 2px),
+        radial-gradient(circle at 78% 24%, rgba(168, 85, 247, 0.12) 0 1.8px, transparent 1.8px),
+        radial-gradient(circle at 64% 78%, rgba(34, 211, 238, 0.12) 0 2.2px, transparent 2.2px),
+        radial-gradient(circle at 30% 62%, rgba(255, 107, 107, 0.08) 0 1.6px, transparent 1.6px);
+      filter: blur(0.2px);
+      animation: particleDrift 32s linear infinite;
+      opacity: 0.75;
+    }
+
+    [v-cloak] {
+      display: none;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+      background: none;
+      border: none;
+      color: inherit;
+      outline: none;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    ul,
+    ol {
+      list-style: none;
+    }
+
+    ::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.2);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(0, 212, 255, 0.3);
+      border-radius: 999px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(0, 212, 255, 0.5);
+    }
+
+    #app {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      height: 100%;
+    }
+
+    .screen {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      position: relative;
+    }
+
+    .cyber-card {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background:
+        linear-gradient(180deg, rgba(0, 212, 255, 0.02), transparent 24%),
+        var(--panel-bg);
+      backdrop-filter: blur(12px);
+      box-shadow: var(--shadow-strong);
+      transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease;
+    }
+
+    .cyber-card:hover {
+      border-color: var(--line-strong);
+      box-shadow: var(--shadow), var(--shadow-strong);
+    }
+
+    .screen-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(380px, 0.85fr);
+      align-items: center;
+      gap: 16px;
+      padding: 12px 18px;
+      min-height: 100px;
+      animation: fadeRise 0.7s ease forwards;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .brand-icon {
+      width: 58px;
+      height: 58px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: linear-gradient(135deg, rgba(0, 212, 255, 0.16), rgba(168, 85, 247, 0.12));
+      border: 1px solid rgba(0, 212, 255, 0.2);
+      padding: 8px;
+      box-shadow: inset 0 0 22px rgba(0, 212, 255, 0.08);
+    }
+
+    .brand-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      filter: drop-shadow(0 0 10px rgba(0, 212, 255, 0.18));
+    }
+
+    .brand-text {
+      min-width: 0;
+    }
+
+    .brand-title {
+      font-size: 28px;
+      font-weight: 700;
+      color: #d8ecff;
+      line-height: 1.1;
+      text-shadow: 0 0 20px rgba(0, 212, 255, 0.12);
+    }
+
+    .brand-subtitle {
+      margin-top: 8px;
+      color: var(--text-muted);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+    }
+
+    .header-clock {
+      justify-self: end;
+      text-align: right;
+    }
+
+    .clock-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-family: var(--mono);
+      font-size: 36px;
+      font-weight: 800;
+      color: var(--primary);
+      letter-spacing: 0.04em;
+      text-shadow: 0 0 20px rgba(0, 212, 255, 0.24);
+    }
+
+    .clock-separator {
+      animation: colonBlink 1s steps(1, end) infinite;
+    }
+
+    .date-row {
+      margin-top: 10px;
+      color: var(--text-muted);
+      font-size: 13px;
+      letter-spacing: 0.12em;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+      animation: fadeRise 0.75s ease forwards;
+      animation-delay: 0.08s;
+      opacity: 0;
+      align-items: stretch;
+    }
+
+    .stat-card {
+      min-height: 132px;
+      padding: 18px 18px 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      border-radius: 12px;
+      transform-origin: center;
+      animation: breatheGlow 3.8s ease-in-out infinite;
+    }
+
+    .stats-grid .stat-card:nth-child(2) {
+      animation-delay: 0.35s;
+    }
+
+    .stats-grid .stat-card:nth-child(3) {
+      animation-delay: 0.7s;
+    }
+
+    .stats-grid .stat-card:nth-child(4) {
+      animation-delay: 1.05s;
+    }
+
+    .stat-card::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at 16% 18%, rgba(0, 212, 255, 0.12), transparent 34%),
+        linear-gradient(135deg, rgba(0, 212, 255, 0.05), transparent 44%, rgba(168, 85, 247, 0.03));
+      opacity: 0.52;
+      animation: breatheOverlay 3.8s ease-in-out infinite;
+    }
+
+    .stats-grid .stat-card:nth-child(2)::after {
+      animation-delay: 0.35s;
+    }
+
+    .stats-grid .stat-card:nth-child(3)::after {
+      animation-delay: 0.7s;
+    }
+
+    .stats-grid .stat-card:nth-child(4)::after {
+      animation-delay: 1.05s;
+    }
+
+    .stat-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .stat-icon {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      font-size: 15px;
+      background: rgba(0, 212, 255, 0.08);
+      border: 1px solid rgba(0, 212, 255, 0.16);
+    }
+
+    .stat-label {
+      color: var(--text-muted);
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .stat-value {
+      margin-top: 12px;
+      font-size: 32px;
+      font-weight: 800;
+      color: var(--primary);
+      font-family: var(--mono);
+      line-height: 1;
+      text-shadow: 0 0 16px rgba(0, 212, 255, 0.18);
+    }
+
+    .stat-value.is-text {
+      font-size: 26px;
+      font-family: var(--sans);
+      font-weight: 700;
+      color: var(--text);
+      text-shadow: none;
+    }
+
+    .stat-foot {
+      margin-top: 16px;
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+
+    .main-grid {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr);
+      gap: 16px;
+      align-items: stretch;
+    }
+
+    .column {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .pane-left,
+    .pane-center,
+    .pane-right {
+      animation: fadeRise 0.78s ease forwards;
+      opacity: 0;
+    }
+
+    .pane-left {
+      animation-delay: 0.18s;
+    }
+
+    .pane-center {
+      animation-delay: 0.38s;
+    }
+
+    .pane-right {
+      animation-delay: 0.58s;
+    }
+
+    .panel {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .panel-header {
+      padding: 18px 18px 14px;
+      border-bottom: 1px solid rgba(0, 212, 255, 0.08);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent);
+    }
+
+    .panel-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .panel-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .panel-icon {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: rgba(0, 212, 255, 0.08);
+      color: var(--primary);
+      font-size: 14px;
+      border: 1px solid rgba(0, 212, 255, 0.12);
+    }
+
+    .panel-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .panel-subtitle {
+      margin-top: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+      letter-spacing: 0.08em;
+    }
+
+    .panel-body {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 16px 18px 18px;
+    }
+
+    .analysis-panel {
+      flex: 1;
+    }
+
+    .analysis-list {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .analysis-block {
+      position: relative;
+      padding: 16px;
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015));
+      border: 1px solid rgba(0, 212, 255, 0.08);
+    }
+
+    .analysis-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .analysis-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .analysis-badge {
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(240, 165, 0, 0.12);
+      border: 1px solid rgba(240, 165, 0, 0.18);
+      color: #ffd78d;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .analysis-html {
+      color: var(--text-soft);
+      font-size: 13px;
+      line-height: 1.72;
+    }
+
+    .analysis-html strong {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .analysis-html .analysis-tag {
+      display: inline-block;
+      margin-bottom: 10px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(0, 212, 255, 0.12);
+      color: var(--primary);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+    }
+
+    .center-shell {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .category-bar-shell {
+      position: relative;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      overflow-x: auto;
+      overflow-y: hidden;
+    }
+
+    .category-bar {
+      position: relative;
+      display: inline-flex;
+      gap: 8px;
+      min-width: max-content;
+      padding-bottom: 4px;
+    }
+
+    .category-indicator {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      height: 2px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(0, 212, 255, 0.65), rgba(34, 211, 238, 1));
+      box-shadow: 0 0 18px rgba(0, 212, 255, 0.35);
+      transition: transform 0.3s ease, width 0.3s ease;
+      pointer-events: none;
+    }
+
+    .category-chip {
+      position: relative;
+      z-index: 1;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 9px 14px;
+      border-radius: 999px;
+      background: rgba(7, 11, 30, 0.9);
+      color: var(--text-muted);
+      cursor: pointer;
+      border: 1px solid rgba(255, 255, 255, 0.03);
+      white-space: nowrap;
+      transition: color 0.3s ease, background 0.3s ease, transform 0.3s ease;
+      font-size: 12px;
+    }
+
+    .category-chip:hover {
+      color: var(--text);
+      transform: translateY(-1px);
+    }
+
+    .category-chip.is-active {
+      color: #061423;
+      background: linear-gradient(90deg, rgba(0, 212, 255, 0.92), rgba(34, 211, 238, 0.92));
+      box-shadow: 0 0 18px rgba(0, 212, 255, 0.22);
+    }
+
+    .news-board {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .news-board-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .news-board-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: 0.02em;
+    }
+
+    .page-tools {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .page-indicator {
+      color: var(--text-muted);
+      font-family: var(--mono);
+      font-size: 12px;
+      min-width: 48px;
+      text-align: center;
+    }
+
+    .page-btn {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      cursor: pointer;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(0, 212, 255, 0.08);
+      color: var(--text-soft);
+      transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+    }
+
+    .page-btn:hover {
+      background: rgba(0, 212, 255, 0.08);
+      border-color: rgba(0, 212, 255, 0.22);
+      color: var(--primary);
+    }
+
+    .news-list-wrap {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .news-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .news-item {
+      padding: 16px 18px;
+      display: grid;
+      grid-template-columns: 48px minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+      background: rgba(8, 14, 34, 0.88);
+      border: 1px solid rgba(0, 212, 255, 0.08);
+      border-radius: 12px;
+      transition: background 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
+    }
+
+    .news-item:hover {
+      background: rgba(0, 212, 255, 0.05);
+      border-color: rgba(0, 212, 255, 0.22);
+      transform: translateY(-1px);
+    }
+
+    .news-index {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--mono);
+      color: var(--primary);
+    }
+
+    .news-index strong {
+      font-size: 28px;
+      line-height: 1;
+      font-weight: 800;
+      text-shadow: 0 0 14px rgba(0, 212, 255, 0.12);
+    }
+
+    .news-index span {
+      font-size: 10px;
+      color: var(--text-faint);
+      letter-spacing: 0.12em;
+    }
+
+    .news-main {
+      min-width: 0;
+    }
+
+    .news-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .meta-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      white-space: nowrap;
+    }
+
+    .meta-pill.source {
+      color: var(--text-soft);
+      background: rgba(168, 85, 247, 0.08);
+      border-color: rgba(168, 85, 247, 0.14);
+    }
+
+    .meta-pill.rank {
+      color: #9fe7ff;
+      background: rgba(0, 212, 255, 0.08);
+      border-color: rgba(0, 212, 255, 0.12);
+    }
+
+    .meta-pill.freq {
+      color: #95ffe3;
+      background: rgba(34, 211, 238, 0.08);
+      border-color: rgba(34, 211, 238, 0.12);
+    }
+
+    .meta-pill.new {
+      color: #2b1a00;
+      background: linear-gradient(90deg, #f0a500, #ffd166);
+      border-color: rgba(240, 165, 0, 0.35);
+      font-weight: 800;
+      box-shadow: 0 0 18px rgba(240, 165, 0, 0.16);
+    }
+
+    .news-link {
+      display: inline;
+      font-size: 18px;
+      font-weight: 600;
+      line-height: 1.55;
+      color: var(--text);
+      transition: color 0.25s ease;
+    }
+
+    .news-item:hover .news-link {
+      color: var(--primary);
+    }
+
+    .news-summary {
+      margin-top: 10px;
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .news-fade-enter-active,
+    .news-fade-leave-active {
+      transition: all 0.32s ease;
+    }
+
+    .news-fade-enter-from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+
+    .news-fade-leave-to {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+
+    .side-stack {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: minmax(210px, 0.92fr) minmax(320px, 1.22fr) minmax(160px, 0.78fr);
+      gap: 16px;
+    }
+
+    .keyword-cloud {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .keyword-tag {
+      position: relative;
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text-soft);
+    }
+
+    .keyword-tag:hover {
+      transform: scale(1.15);
+      box-shadow: 0 0 18px rgba(0, 212, 255, 0.18);
+    }
+
+    .keyword-tag.is-selected {
+      border-color: rgba(0, 212, 255, 0.32);
+      box-shadow: 0 0 20px rgba(0, 212, 255, 0.24);
+    }
+
+    .tone-cyan {
+      color: #9ff6ff;
+      background: rgba(0, 212, 255, 0.09);
+    }
+
+    .tone-purple {
+      color: #d4b0ff;
+      background: rgba(168, 85, 247, 0.1);
+    }
+
+    .tone-green {
+      color: #97fff3;
+      background: rgba(34, 211, 238, 0.08);
+    }
+
+    .tone-red {
+      color: #ffc2c2;
+      background: rgba(255, 107, 107, 0.08);
+    }
+
+    .tone-amber {
+      color: #ffe2a3;
+      background: rgba(240, 165, 0, 0.08);
+    }
+
+    .chart-box {
+      width: 100%;
+      height: 100%;
+      min-height: 300px;
+    }
+
+    .rss-empty {
+      height: 100%;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      color: var(--text-muted);
+      gap: 12px;
+    }
+
+    .rss-empty svg {
+      width: 56px;
+      height: 56px;
+      opacity: 0.8;
+    }
+
+    .rss-empty strong {
+      display: block;
+      color: var(--text-soft);
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    .fa-solid,
+    .fa-regular {
+      line-height: 1;
+    }
+
+    .signal-dots {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-faint);
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+
+    .signal-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--primary);
+      box-shadow: 0 0 12px rgba(0, 212, 255, 0.4);
+    }
+
+    @keyframes fadeRise {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes colonBlink {
+      0%, 49% {
+        opacity: 1;
+      }
+      50%, 100% {
+        opacity: 0.22;
+      }
+    }
+
+    @keyframes particleDrift {
+      0% {
+        transform: translate3d(0, 0, 0);
+      }
+      50% {
+        transform: translate3d(-18px, -10px, 0);
+      }
+      100% {
+        transform: translate3d(0, 0, 0);
+      }
+    }
+
+    @keyframes breatheGlow {
+      0%, 100% {
+        box-shadow: 0 0 0 rgba(0, 212, 255, 0), 0 16px 40px rgba(0, 0, 0, 0.32);
+        border-color: var(--line);
+        transform: translateY(0) scale(1);
+      }
+      50% {
+        box-shadow:
+          0 0 0 1px rgba(0, 212, 255, 0.06),
+          0 0 34px rgba(0, 212, 255, 0.2),
+          0 18px 44px rgba(0, 0, 0, 0.36);
+        border-color: rgba(0, 212, 255, 0.3);
+        transform: translateY(-1px) scale(1.012);
+      }
+    }
+
+    @keyframes breatheOverlay {
+      0%, 100% {
+        opacity: 0.42;
+      }
+      50% {
+        opacity: 0.88;
+      }
+    }
+
+    @media (max-width: 1600px) {
+      .screen-header {
+        grid-template-columns: minmax(0, 1fr) minmax(320px, 0.8fr);
+      }
+
+      .brand-title {
+        font-size: 24px;
+      }
+
+      .clock-row {
+        font-size: 36px;
+      }
+
+      .news-link {
+        font-size: 16px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app" v-cloak>
+    <div class="screen">
+      <header class="screen-header cyber-card">
+        <div class="brand">
+          <div class="brand-icon">
+            <img src="./static/logo.png" alt="恒银智能舆情监控 Logo">
+          </div>
+          <div class="brand-text">
+            <div class="brand-title">{{ meta.title }}</div>
+            <div class="brand-subtitle">{{ meta.subtitle }}</div>
+          </div>
+        </div>
+
+        <div class="header-clock">
+          <div class="clock-row">
+            <span>{{ clockParts.hh }}</span>
+            <span class="clock-separator">:</span>
+            <span>{{ clockParts.mm }}</span>
+            <span class="clock-separator">:</span>
+            <span>{{ clockParts.ss }}</span>
+          </div>
+          <div class="date-row">{{ meta.dateLabel }}</div>
+        </div>
+      </header>
+
+      <section class="stats-grid">
+        <article class="stat-card cyber-card" v-for="card in statsCards" :key="card.key">
+          <div>
+            <div class="stat-head">
+              <span class="stat-icon"><i :class="card.iconClass"></i></span>
+              <span class="stat-label">{{ card.label }}</span>
+            </div>
+            <div :class="['stat-value', { 'is-text': card.type !== 'number' }]">
+              <template v-if="card.type === 'number'">
+                {{ animatedStats[card.key] }} 条
+              </template>
+              <template v-else>
+                {{ card.value }}
+              </template>
+            </div>
+          </div>
+          <div class="stat-foot">{{ card.foot }}</div>
+        </article>
+      </section>
+
+      <section class="main-grid">
+        <div class="column pane-left">
+          <section class="panel analysis-panel cyber-card">
+            <div class="panel-header">
+              <div class="panel-title-row">
+                <div class="panel-title-wrap">
+                  <span class="panel-icon"><i class="fa-solid fa-brain"></i></span>
+                  <div>
+                    <div class="panel-title">AI 热点分析</div>
+                    <div class="panel-subtitle">基于大模型的智能研判</div>
+                  </div>
+                </div>
+                <div class="signal-dots">
+                  <span class="signal-dot"></span>
+                  <span>AI</span>
+                </div>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="analysis-list">
+                <article class="analysis-block" v-for="panel in aiPanels" :key="panel.title">
+                  <div class="analysis-head">
+                    <div class="analysis-title">{{ panel.title }}</div>
+                    <div class="analysis-badge" v-if="panel.badge">{{ panel.badge }}</div>
+                  </div>
+                  <div class="analysis-html" v-html="panel.html"></div>
+                </article>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="column pane-center">
+          <section class="panel center-shell cyber-card">
+            <div class="panel-header">
+              <div class="panel-title-row">
+                <div class="panel-title-wrap">
+                  <span class="panel-icon"><i class="fa-solid fa-satellite-dish"></i></span>
+                  <div>
+                    <div class="panel-title">实时资讯列表</div>
+                    <div class="panel-subtitle">分类标签、分页轮播与热度追踪</div>
+                  </div>
+                </div>
+                <div class="signal-dots">
+                  <span class="signal-dot"></span>
+                  <span>{{ selectedCategory }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel-body">
+              <div class="category-bar-shell" ref="categoryBarRef" @mouseenter="setAutoPause(true)" @mouseleave="setAutoPause(false)">
+                <nav class="category-bar">
+                  <button
+                    v-for="category in categories"
+                    :key="category.name"
+                    class="category-chip"
+                    :class="{ 'is-active': category.name === selectedCategory }"
+                    :data-category="category.name"
+                    type="button"
+                    @click="selectCategory(category.name)"
+                  >
+                    <span>{{ category.name }}</span>
+                    <span>({{ category.count }})</span>
+                  </button>
+                  <div class="category-indicator" :style="categoryIndicatorStyle"></div>
+                </nav>
+              </div>
+
+              <div class="news-board">
+                <div class="news-board-header">
+                  <div class="news-board-title">{{ selectedCategory }}（共 {{ filteredNews.length }} 条）</div>
+                  <div class="page-tools">
+                    <button class="page-btn" type="button" @click="prevPage" aria-label="上一页"><i class="fa-solid fa-chevron-left"></i></button>
+                    <span class="page-indicator">{{ currentPage }}/{{ totalPages }}</span>
+                    <button class="page-btn" type="button" @click="nextPage" aria-label="下一页"><i class="fa-solid fa-chevron-right"></i></button>
+                  </div>
+                </div>
+
+                <div class="news-list-wrap" @mouseenter="setAutoPause(true)" @mouseleave="setAutoPause(false)">
+                  <transition-group name="news-fade" tag="div" class="news-list">
+                    <article class="news-item" v-for="item in visibleNews" :key="item.key">
+                      <div class="news-index">
+                        <strong>{{ item.displayIndex }}</strong>
+                        <span>No.</span>
+                      </div>
+
+                      <div class="news-main">
+                        <div class="news-meta">
+                          <span class="meta-pill source">{{ item.source_name }}</span>
+                          <span class="meta-pill rank">{{ item.rankText }}</span>
+                          <span class="meta-pill">{{ item.time_display }}</span>
+                          <span class="meta-pill freq">{{ item.count }}次</span>
+                          <span class="meta-pill new" v-if="item.is_new">NEW</span>
+                        </div>
+                        <a :href="item.url" target="_blank" rel="noreferrer" class="news-link">{{ item.title }}</a>
+                        <div class="news-summary">{{ item.summary }}</div>
+                      </div>
+                    </article>
+                  </transition-group>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="column pane-right">
+          <div class="side-stack">
+            <section class="panel cyber-card">
+              <div class="panel-header">
+                <div class="panel-title-row">
+                  <div class="panel-title-wrap">
+                    <span class="panel-icon"><i class="fa-solid fa-cloud"></i></span>
+                    <div>
+                      <div class="panel-title">实时关键词云</div>
+                      <div class="panel-subtitle">点击关键词可同步筛选对应分类</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="panel-body">
+                <div class="keyword-cloud">
+                  <button
+                    v-for="keyword in keywordCloud"
+                    :key="keyword.name"
+                    type="button"
+                    class="keyword-tag"
+                    :class="[keyword.toneClass, { 'is-selected': selectedKeyword === keyword.name }]"
+                    @click="selectKeyword(keyword)"
+                  >
+                    {{ keyword.name }}
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel cyber-card">
+              <div class="panel-header">
+                <div class="panel-title-row">
+                  <div class="panel-title-wrap">
+                    <span class="panel-icon"><i class="fa-solid fa-chart-column"></i></span>
+                    <div>
+                      <div class="panel-title">资讯来源分布</div>
+                      <div class="panel-subtitle">按热点新闻条数排序的来源活跃度</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="panel-body">
+                <div ref="sourceChartRef" class="chart-box"></div>
+              </div>
+            </section>
+
+            <section class="panel cyber-card">
+              <div class="panel-header">
+                <div class="panel-title-row">
+                  <div class="panel-title-wrap">
+                    <span class="panel-icon"><i class="fa-solid fa-rss"></i></span>
+                    <div>
+                      <div class="panel-title">RSS 新增更新</div>
+                      <div class="panel-subtitle">订阅源最新动态</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="panel-body">
+                <div class="rss-empty" v-if="!rssState.items.length">
+                  <div>
+                    <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                      <rect x="10" y="10" width="44" height="44" rx="4" stroke="#00d4ff" stroke-opacity="0.45"/>
+                      <path d="M20 42C28 42 34 48 34 56" stroke="#22d3ee" stroke-width="3" stroke-linecap="round"/>
+                      <path d="M20 32C33 32 44 43 44 56" stroke="#a855f7" stroke-width="3" stroke-linecap="round"/>
+                      <circle cx="21" cy="55" r="3" fill="#00d4ff"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <strong>暂无内容</strong>
+                    <div>{{ rssState.subtitle }}</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const { createApp, ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } = Vue
+
+    const CATEGORY_COUNTS = [
+      { name: '经济数据', count: 11 },
+      { name: '金融机构与监管', count: 2 },
+      { name: '自然灾害', count: 1 },
+      { name: '人为事故', count: 1 },
+      { name: '社会动荡', count: 3 },
+      { name: '供给与生产', count: 1 },
+      { name: '库存与物流', count: 8 },
+      { name: '需求与消费', count: 1 },
+      { name: '国际关系', count: 49 },
+      { name: '价格波动', count: 8 },
+      { name: '市场情绪', count: 1 },
+      { name: '特定品种板块', count: 6 },
+      { name: '重点企业', count: 9 },
+      { name: '行业政策', count: 1 },
+    ]
+
+    const SOURCE_DISTRIBUTION = [
+      { name: '金十数据', value: 18 },
+      { name: '华尔街见闻快讯', value: 16 },
+      { name: '凤凰网', value: 10 },
+      { name: '华尔街见闻', value: 9 },
+      { name: '财联社热门', value: 8 },
+      { name: '澎湃新闻', value: 8 },
+      { name: '雪球', value: 8 },
+      { name: '百度热搜', value: 7 },
+      { name: '腾讯热搜', value: 7 },
+      { name: '今日头条', value: 6 },
+      { name: '微博', value: 5 },
+    ]
+
+    const SOURCE_LINKS = {
+      '金十数据': 'https://www.jin10.com',
+      '华尔街见闻快讯': 'https://wallstreetcn.com/live',
+      '凤凰网': 'https://finance.ifeng.com',
+      '华尔街见闻': 'https://wallstreetcn.com',
+      '财联社热门': 'https://www.cls.cn',
+      '澎湃新闻': 'https://www.thepaper.cn',
+      '雪球': 'https://xueqiu.com',
+      '百度热搜': 'https://top.baidu.com',
+      '腾讯热搜': 'https://news.qq.com',
+      '今日头条': 'https://www.toutiao.com',
+      '微博': 'https://s.weibo.com',
+    }
+
+    const KEYWORDS = [
+      { name: '国际关系', category: '国际关系', toneClass: 'tone-cyan' },
+      { name: '经济数据', category: '经济数据', toneClass: 'tone-purple' },
+      { name: '重点企业', category: '重点企业', toneClass: 'tone-green' },
+      { name: '库存与物流', category: '库存与物流', toneClass: 'tone-cyan' },
+      { name: '价格波动', category: '价格波动', toneClass: 'tone-red' },
+      { name: '特定品种板块', category: '特定品种板块', toneClass: 'tone-amber' },
+      { name: '社会动荡', category: '社会动荡', toneClass: 'tone-red' },
+      { name: '金融机构与监管', category: '金融机构与监管', toneClass: 'tone-purple' },
+      { name: '自然灾害', category: '自然灾害', toneClass: 'tone-green' },
+      { name: '人为事故', category: '人为事故', toneClass: 'tone-amber' },
+    ]
+
+    const CATEGORY_PARTS = {
+      '经济数据': {
+        subjects: ['美国3月CPI', '中国一季度GDP', '欧元区PMI终值', '美国初请失业金人数', '国内社融数据', '日本核心CPI', '英国零售销售', '德国ZEW景气指数'],
+        actions: ['超预期回升', '低于市场预期', '出现分化信号', '环比转强', '同比边际改善', '释放修复迹象', '延续回暖节奏', '刷新阶段高位'],
+        tails: ['美元指数短线走强', '风险资产出现轮动', '市场重新定价年内降息路径', '全球宏观交易情绪升温', '人民币资产韧性受到关注', '债市收益率曲线同步调整'],
+      },
+      '金融机构与监管': {
+        subjects: ['证监会发声支持中长期资金入市', '央行公开市场操作延续净投放', '国家金融监督管理总局明确重点领域风险排查'],
+        actions: ['释放稳预期信号', '强化跨周期调节', '明确合规边界'],
+        tails: ['券商板块盘中异动', '市场解读监管节奏更趋温和', '流动性预期保持平稳'],
+      },
+      '自然灾害': {
+        subjects: ['强对流天气影响华东物流节点', '海外飓风逼近主要能源港口'],
+        actions: ['扰动运输效率', '引发供应担忧'],
+        tails: ['市场关注短期交付节奏', '相关运价指标出现上行'],
+      },
+      '人为事故': {
+        subjects: ['海外化工园区突发装置故障', '矿区运输线发生安全事故'],
+        actions: ['触发应急响应', '推升局部供给风险'],
+        tails: ['下游企业紧急评估库存安全边际', '多平台同步关注供应恢复时间'],
+      },
+      '社会动荡': {
+        subjects: ['中东局势再现升级信号', '欧洲多地爆发罢工行动', '新兴市场出现大规模抗议活动'],
+        actions: ['扰动避险情绪', '影响跨境运输预期', '放大市场不确定性'],
+        tails: ['黄金与原油联动走强', '机构提示风险偏好回落', '全球供应链韧性再受考验'],
+      },
+      '供给与生产': {
+        subjects: ['主要化工装置计划外停车'],
+        actions: ['引发供应端收缩预期'],
+        tails: ['市场追踪后续复产时间表'],
+      },
+      '库存与物流': {
+        subjects: ['EIA原油库存', '港口库存数据', '红海航线绕行情况', '主要粮食到港节奏', '成品油商业库存', '波罗的海干散货指数', '苏伊士运河通行效率', '铁矿港口库存'],
+        actions: ['连续回落', '阶段性累库', '继续承压', '低位企稳', '波动放大', '延续去库趋势', '出现超季节性变化', '录得边际改善'],
+        tails: ['现货端紧张情绪升温', '物流成本曲线继续抬升', '市场评估短期补库窗口', '盘面升水结构有所强化', '运输瓶颈成为焦点'],
+      },
+      '需求与消费': {
+        subjects: ['节前备货节奏加快'],
+        actions: ['带动终端采购回暖'],
+        tails: ['消费链条边际修复获得验证'],
+      },
+      '国际关系': {
+        subjects: ['美国财长称中国“不可靠”会影响特朗普访华吗？外交部回应', '美伊据称接近达成阶段性停火框架', '欧盟考虑对关键进口品类启动新一轮审查', '多国就红海航运安全召开紧急磋商', '俄乌局势出现阶段性缓和信号', '中美高层会谈释放稳定预期', '特朗普称若鲍威尔届满不走将考虑采取行动', '沙特与主要产油国讨论延长联合减产安排', '日韩围绕半导体供应链协调立场', '全球投资者再度聚焦霍尔木兹海峡风险'],
+        actions: ['牵动全球风险偏好', '引发市场重新评估地缘溢价', '成为跨平台最热议题', '触发能源与避险资产联动', '带动国际贸易预期波动', '引发资金重新配置'],
+        tails: ['原油、黄金与汇率市场同步响应', '外交表态成为盘面核心驱动', '舆情热度连续多个时段霸榜', '机构提示需警惕情绪脉冲过快释放', '市场关注下一阶段政策与谈判节点'],
+      },
+      '价格波动': {
+        subjects: ['标普再创历史新高', '纳指十一连涨', '特斯拉盘中大涨近8%', '国际原油期货震荡上行', '黄金逼近阶段新高', '工业金属夜盘普涨', '离岸人民币短线走强', '欧洲天然气期货波动放大'],
+        actions: ['引爆跨市场关注', '刷新阶段极值', '带动情绪快速发酵', '推动资金再平衡', '强化趋势交易信号'],
+        tails: ['高弹性板块活跃度迅速提升', '短线交易热度明显走高', '风险资产与避险资产同步分化'],
+      },
+      '市场情绪': {
+        subjects: ['市场对年内降息路径的分歧加大'],
+        actions: ['令风险偏好呈现摇摆'],
+        tails: ['情绪指标与成交结构出现背离'],
+      },
+      '特定品种板块': {
+        subjects: ['原油链条', '黄金板块', '人工智能产业链', '锂电赛道', '纯碱与玻璃', '农产品油脂'],
+        actions: ['热度持续上移', '资金关注度明显回升', '成为多平台共振焦点', '呈现板块联动异动'],
+        tails: ['板块内部轮动节奏明显加快', '交易主线聚焦景气度与政策催化'],
+      },
+      '重点企业': {
+        subjects: ['特斯拉AI芯片量产进展', '英伟达新一代算力平台', '宁德时代一季报', '比亚迪海外销量', '华为新型算力中心', '沙特阿美资本开支计划', '中石化炼化项目', '紫金矿业资源整合', '万华化学装置动态'],
+        actions: ['强化龙头示范效应', '提升产业链景气预期', '推动市场重估成长空间', '引发资金集中交易'],
+        tails: ['核心供应链公司同步受益', '相关板块景气度预期继续升温', '机构维持高关注度'],
+      },
+      '行业政策': {
+        subjects: ['新一轮产业政策聚焦先进制造与绿色转型'],
+        actions: ['为中长期投资逻辑提供支撑'],
+        tails: ['市场等待细则落地后的执行力度'],
+      },
+    }
+
+    const CATEGORY_SUMMARIES = {
+      '经济数据': '宏观指标落地后，债股汇三端联动明显，机构对政策与增长组合的再定价正在加速。',
+      '金融机构与监管': '监管表态更偏稳预期与防风险，资金面对流动性环境的焦虑有所缓和。',
+      '自然灾害': '灾害事件虽为单点，但对运输与供给链条的扰动具备外溢效应。',
+      '人为事故': '事故类消息传播快、验证慢，短线更容易推升局部品种风险溢价。',
+      '社会动荡': '动荡事件对风险偏好形成持续压制，避险资产相关话题热度显著抬升。',
+      '供给与生产': '供给端波动具备放大效应，停复产节奏成为价格预期的关键变量。',
+      '库存与物流': '库存与航运链条同时波动，市场对供需错配的关注度不断提高。',
+      '需求与消费': '需求回暖信号尚处早期，但边际改善足以支撑资金重新布局消费链。',
+      '国际关系': '国际关系仍是全网最强主线，外交表态、谈判进展与制裁消息形成持续共振。',
+      '价格波动': '高弹性资产价格拉升明显，短期趋势交易与情绪交易同时活跃。',
+      '市场情绪': '分歧本身正在成为市场焦点，情绪脉冲与基本面逻辑并存。',
+      '特定品种板块': '板块热度在政策、地缘与业绩之间轮动，结构性机会占据主导。',
+      '重点企业': '龙头企业财报与技术进展持续抬升市场关注，带动产业链联动跟涨。',
+      '行业政策': '政策脉冲为中期叙事提供锚点，但落地节奏仍决定短期交易强度。',
+    }
+
+    function pad(num) {
+      return String(num).padStart(2, '0')
+    }
+
+    function formatTime(minutes) {
+      const safe = Math.max(0, Math.min(minutes, 23 * 60 + 59))
+      const hh = Math.floor(safe / 60)
+      const mm = safe % 60
+      return `${pad(hh)}:${pad(mm)}`
+    }
+
+    function buildSourceQueue(distribution) {
+      const queue = []
+      const remaining = distribution.map((item) => ({ ...item }))
+      while (queue.length < distribution.reduce((sum, item) => sum + item.value, 0)) {
+        remaining.forEach((item) => {
+          if (item.value > 0) {
+            queue.push(item.name)
+            item.value -= 1
+          }
+        })
+      }
+      return queue
+    }
+
+    function buildHeadline(category, index) {
+      const parts = CATEGORY_PARTS[category]
+      const subject = parts.subjects[index % parts.subjects.length]
+      const action = parts.actions[Math.floor(index / parts.subjects.length) % parts.actions.length]
+      const tail = parts.tails[Math.floor(index / (parts.subjects.length * parts.actions.length)) % parts.tails.length]
+      return `${subject}${action}，${tail}`
+    }
+
+    function buildTimeRange(seed) {
+      const start = 250 + (seed * 11) % 490
+      const duration = 40 + (seed * 7) % 150
+      const end = Math.min(start + duration, 13 * 60 + 17)
+      return `${formatTime(start)}~${formatTime(end)}`
+    }
+
+    function buildRanks(category, seed) {
+      const baseMap = {
+        '国际关系': 1,
+        '价格波动': 2,
+        '重点企业': 3,
+        '经济数据': 4,
+        '库存与物流': 5,
+        '特定品种板块': 6,
+        '市场情绪': 6,
+        '社会动荡': 5,
+        '金融机构与监管': 7,
+        '行业政策': 8,
+        '供给与生产': 8,
+        '需求与消费': 8,
+        '自然灾害': 9,
+        '人为事故': 9,
+      }
+      const start = baseMap[category] + (seed % 4)
+      const width = (seed % 3) + 1
+      const ranks = []
+      for (let i = 0; i < width; i += 1) {
+        ranks.push(start + i)
+      }
+      return ranks
+    }
+
+    function formatRankText(ranks) {
+      const min = Math.min(...ranks)
+      const max = Math.max(...ranks)
+      return min === max ? `${min}` : `${min}-${max}`
+    }
+
+    function buildUrl(sourceName, id) {
+      const base = SOURCE_LINKS[sourceName] || 'https://example.com'
+      return `${base}/news/${id}`
+    }
+
+    function generateMockNews() {
+      const sourceQueue = buildSourceQueue(SOURCE_DISTRIBUTION)
+      const news = []
+      let sourceIndex = 0
+      let globalIndex = 1
+
+      CATEGORY_COUNTS.forEach((group) => {
+        for (let i = 0; i < group.count; i += 1) {
+          const sourceName = sourceQueue[sourceIndex]
+          const ranks = buildRanks(group.name, globalIndex + i)
+          const title = buildHeadline(group.name, i)
+          news.push({
+            id: `news-${globalIndex}`,
+            title,
+            url: buildUrl(sourceName, globalIndex),
+            source_name: sourceName,
+            time_display: buildTimeRange(globalIndex),
+            ranks,
+            is_new: globalIndex % 8 === 0 || (i === 0 && ['国际关系', '价格波动', '重点企业'].includes(group.name)),
+            count: 1 + ((globalIndex * 7) % 5),
+            category: group.name,
+            summary: CATEGORY_SUMMARIES[group.name],
+          })
+          sourceIndex += 1
+          globalIndex += 1
+        }
+      })
+
+      return news
+    }
+
+    const rawMockApi = {
+      meta: {
+        title: '恒银智能舆情监控',
+        subtitle: '刷新时间：04/16 13:17',
+        refreshTime: '04/16 13:17',
+        reportType: '当前榜单',
+        updateTime: '04-16 09:32',
+        dateLabel: '2026年4月16日 星期四',
+      },
+      stats: {
+        newsTotal: 250,
+        hotNews: 102,
+        reportType: '当前榜单',
+        updateTime: '04-16 09:32',
+      },
+      news: generateMockNews(),
+      ai_analysis: {
+        leadTag: '全网霸屏',
+        overview: {
+          macro: '宏观主线：地缘博弈与核心经济数据交叉出现，使市场同时承受风险偏好收缩与增长预期修复的双重拉扯。',
+          micro: [
+            '国际关系话题连续霸榜，外交表态和停火框架成为最强传播引擎。',
+            '特斯拉、英伟达、宁德时代等重点企业消息带动成长资产热度同步走高。',
+            '库存、物流与航运线索放大供需错配预期，商品链条情绪继续升温。',
+          ],
+        },
+        sentiment: {
+          spectrum: '情绪光谱：主流叙事偏向“风险仍在、机会未退”，市场既在追逐高弹性，也在重新配置避险仓位。',
+          conflicts: [
+            '短期停火预期与长期地缘摩擦之间仍存在显著认知落差。',
+            '宏观数据改善带来风险资产修复，但利率路径分歧尚未消退。',
+            '龙头企业高景气兑现与高估值压力并行，交易趋于拥挤。',
+          ],
+        },
+        signals: {
+          resonance: '跨平台共振：财经媒体强调政策与价格信号，社交平台放大情绪与立场，对同一事件形成“逻辑 + 情绪”双层传播。',
+          mutation: '轨迹突变：国际关系与价格波动在多个时段同时抬头，说明盘面主线正从单一事件驱动转为跨资产联动。',
+          weak: '弱信号捕捉：物流、库存与监管类话题热度虽不极端，但具备向品种交易和行业配置外溢的潜力。',
+        },
+        strategy: [
+          '优先监控国际关系、价格波动与重点企业三条主线的联动强度，作为盘面风险偏好温度计。',
+          '对库存与物流类消息保持高敏感度，尤其关注是否会在商品板块形成持续性升水结构。',
+          '对高热舆情保持节奏交易，避免在纯情绪脉冲尾部追价。',
+        ],
+        sources: [
+          {
+            name: '华尔街见闻',
+            analysis: '停火框架、利率路径与龙头科技公司的消息交替推升关注度，资金更偏好确定性较强的全球主线。',
+          },
+          {
+            name: '知乎',
+            analysis: '社会情绪层面更关心宏观冲突如何传导到就业、资产价格和消费预期，讨论呈现明显的“风险感知前置”。',
+          },
+        ],
+      },
+      rss_updates: {
+        title: 'RSS 新增更新',
+        subtitle: '暂无新增订阅动态',
+        items: [],
+      },
+      source_distribution: SOURCE_DISTRIBUTION,
+      keywords: KEYWORDS,
+    }
+
+    function buildAiPanels(aiAnalysis) {
+      return [
+        {
+          title: '核心热点态势',
+          badge: '「全网霸屏」',
+          html: `
+            <span class="analysis-tag">「${aiAnalysis.leadTag}」</span><br>
+            <strong>【宏观主线】</strong><br>
+            ${aiAnalysis.overview.macro}<br><br>
+            <strong>【微观领域】</strong><br>
+            1. ${aiAnalysis.overview.micro[0]}<br>
+            2. ${aiAnalysis.overview.micro[1]}<br>
+            3. ${aiAnalysis.overview.micro[2]}
+          `,
+        },
+        {
+          title: '舆论风向争议',
+          badge: '',
+          html: `
+            <strong>【情绪光谱】</strong><br>
+            ${aiAnalysis.sentiment.spectrum}<br><br>
+            <strong>【核心矛盾】</strong><br>
+            1. ${aiAnalysis.sentiment.conflicts[0]}<br>
+            2. ${aiAnalysis.sentiment.conflicts[1]}<br>
+            3. ${aiAnalysis.sentiment.conflicts[2]}
+          `,
+        },
+        {
+          title: '异动与弱信号',
+          badge: '',
+          html: `
+            <strong>【跨平台共振】</strong><br>
+            ${aiAnalysis.signals.resonance}<br><br>
+            <strong>【轨迹突变】</strong><br>
+            ${aiAnalysis.signals.mutation}<br><br>
+            <strong>【弱信号捕捉】</strong><br>
+            ${aiAnalysis.signals.weak}
+          `,
+        },
+        {
+          title: '研判策略建议',
+          badge: '',
+          html: `
+            1. ${aiAnalysis.strategy[0]}<br><br>
+            2. ${aiAnalysis.strategy[1]}<br><br>
+            3. ${aiAnalysis.strategy[2]}
+          `,
+        },
+        {
+          title: '独立源点速览',
+          badge: '',
+          html: aiAnalysis.sources
+            .map((item) => `<strong>${item.name}</strong><br>${item.analysis}`)
+            .join('<br><br>'),
+        },
+      ]
+    }
+
+    function adaptDashboardData(raw) {
+      const newsByCategory = {
+        '全部资讯': [...raw.news].sort((a, b) => {
+          const rankDiff = Math.min(...a.ranks) - Math.min(...b.ranks)
+          if (rankDiff !== 0) return rankDiff
+          return b.count - a.count
+        }),
+      }
+
+      CATEGORY_COUNTS.forEach((category) => {
+        newsByCategory[category.name] = raw.news
+          .filter((item) => item.category === category.name)
+          .sort((a, b) => {
+            const rankDiff = Math.min(...a.ranks) - Math.min(...b.ranks)
+            if (rankDiff !== 0) return rankDiff
+            return b.count - a.count
+          })
+      })
+
+      return {
+        categories: [{ name: '全部资讯', count: raw.news.length }, ...CATEGORY_COUNTS],
+        newsByCategory,
+        sourceChartData: raw.source_distribution,
+        keywordCloud: raw.keywords,
+        aiPanels: buildAiPanels(raw.ai_analysis),
+        rssState: raw.rss_updates,
+        meta: raw.meta,
+        stats: raw.stats,
+      }
+    }
+
+    globalThis.rawMockApi = rawMockApi
+    globalThis.adaptDashboardData = adaptDashboardData
+
+    createApp({
+      setup() {
+        const dashboard = adaptDashboardData(rawMockApi)
+        const pageSize = 10
+        const selectedCategory = ref('全部资讯')
+        const selectedKeyword = ref('')
+        const currentPage = ref(1)
+        const currentTime = ref(new Date())
+        const categoryBarRef = ref(null)
+        const categoryIndicatorStyle = ref({ width: '0px', transform: 'translateX(0px)' })
+        const sourceChartRef = ref(null)
+        const animatedStats = reactive({
+          newsTotal: 0,
+          hotNews: 0,
+        })
+        const isAutoPaused = ref(false)
+
+        let chartInstance = null
+        let clockTimer = null
+        let autoPageTimer = null
+
+        const categories = computed(() => dashboard.categories)
+        const meta = computed(() => dashboard.meta)
+        const aiPanels = computed(() => dashboard.aiPanels)
+        const keywordCloud = computed(() => dashboard.keywordCloud)
+        const rssState = computed(() => dashboard.rssState)
+        const filteredNews = computed(() => dashboard.newsByCategory[selectedCategory.value] || [])
+        const totalPages = computed(() => Math.max(1, Math.ceil(filteredNews.value.length / pageSize)))
+        const visibleNews = computed(() => {
+          const start = (currentPage.value - 1) * pageSize
+          return filteredNews.value.slice(start, start + pageSize).map((item, index) => ({
+            ...item,
+            key: `${selectedCategory.value}-${currentPage.value}-${item.id}`,
+            displayIndex: start + index + 1,
+            rankText: formatRankText(item.ranks),
+          }))
+        })
+
+        const statsCards = computed(() => [
+          {
+            key: 'newsTotal',
+            iconClass: 'fa-regular fa-newspaper',
+            label: '新闻总数',
+            value: dashboard.stats.newsTotal,
+            foot: '本次新增 0 条',
+            type: 'number',
+          },
+          {
+            key: 'hotNews',
+            iconClass: 'fa-solid fa-fire-flame-curved',
+            label: '热点新闻',
+            value: dashboard.stats.hotNews,
+            foot: '高热资讯',
+            type: 'number',
+          },
+          {
+            key: 'reportType',
+            iconClass: 'fa-solid fa-chart-line',
+            label: '报告类型',
+            value: dashboard.stats.reportType,
+            foot: '实时热点监控',
+            type: 'text',
+          },
+          {
+            key: 'updateTime',
+            iconClass: 'fa-regular fa-clock',
+            label: '更新时间',
+            value: dashboard.stats.updateTime,
+            foot: '每30分钟自动更新',
+            type: 'text',
+          },
+        ])
+
+        const clockParts = computed(() => ({
+          hh: pad(currentTime.value.getHours()),
+          mm: pad(currentTime.value.getMinutes()),
+          ss: pad(currentTime.value.getSeconds()),
+        }))
+
+        function animateCounter(key, target) {
+          const start = performance.now()
+          const duration = 1200
+
+          function tick(now) {
+            const progress = Math.min((now - start) / duration, 1)
+            const eased = 1 - Math.pow(1 - progress, 3)
+            animatedStats[key] = Math.round(target * eased)
+            if (progress < 1) {
+              requestAnimationFrame(tick)
+            }
+          }
+
+          requestAnimationFrame(tick)
+        }
+
+        function updateCategoryIndicator() {
+          nextTick(() => {
+            if (!categoryBarRef.value) return
+            const buttons = Array.from(categoryBarRef.value.querySelectorAll('.category-chip'))
+            const activeButton = buttons.find((button) => button.dataset.category === selectedCategory.value)
+            if (!activeButton) return
+
+            categoryIndicatorStyle.value = {
+              width: `${activeButton.offsetWidth}px`,
+              transform: `translateX(${activeButton.offsetLeft}px)`,
+            }
+          })
+        }
+
+        function setAutoPause(value) {
+          isAutoPaused.value = value
+        }
+
+        function selectCategory(name) {
+          selectedCategory.value = name
+          selectedKeyword.value = ''
+          currentPage.value = 1
+        }
+
+        function selectKeyword(keyword) {
+          selectedKeyword.value = keyword.name
+          selectedCategory.value = keyword.category
+          currentPage.value = 1
+        }
+
+        function nextPage() {
+          currentPage.value = currentPage.value >= totalPages.value ? 1 : currentPage.value + 1
+        }
+
+        function prevPage() {
+          currentPage.value = currentPage.value <= 1 ? totalPages.value : currentPage.value - 1
+        }
+
+        function initChart() {
+          if (!sourceChartRef.value || !window.echarts) return
+
+          if (chartInstance) {
+            chartInstance.dispose()
+            chartInstance = null
+          }
+
+          chartInstance = echarts.init(sourceChartRef.value)
+          const yAxisData = dashboard.sourceChartData.map((item) => item.name).reverse()
+          const seriesData = dashboard.sourceChartData.map((item) => item.value).reverse()
+
+          chartInstance.setOption({
+            animationDuration: 700,
+            animationEasing: 'cubicOut',
+            grid: {
+              top: 8,
+              right: 18,
+              bottom: 8,
+              left: 90,
+              containLabel: false,
+            },
+            tooltip: { show: false },
+            xAxis: {
+              type: 'value',
+              axisLine: { show: false },
+              axisTick: { show: false },
+              splitLine: {
+                lineStyle: { color: 'rgba(123, 123, 158, 0.08)' },
+              },
+              axisLabel: { color: '#7b7b9e', fontSize: 10 },
+            },
+            yAxis: {
+              type: 'category',
+              data: yAxisData,
+              axisLine: { show: false },
+              axisTick: { show: false },
+              axisLabel: {
+                color: '#c0c0d8',
+                fontSize: 11,
+                width: 84,
+                overflow: 'truncate',
+              },
+            },
+            series: [
+              {
+                type: 'bar',
+                data: seriesData,
+                barWidth: 10,
+                showBackground: true,
+                backgroundStyle: {
+                  color: 'rgba(255, 255, 255, 0.03)',
+                  borderRadius: 999,
+                },
+                itemStyle: {
+                  borderRadius: 999,
+                  color: new echarts.graphic.LinearGradient(1, 0, 0, 0, [
+                    { offset: 0, color: '#a855f7' },
+                    { offset: 1, color: '#00d4ff' },
+                  ]),
+                  shadowBlur: 12,
+                  shadowColor: 'rgba(0, 212, 255, 0.18)',
+                },
+                label: {
+                  show: true,
+                  position: 'right',
+                  color: '#e8e8f0',
+                  fontFamily: 'JetBrains Mono, Courier New, monospace',
+                  fontSize: 11,
+                },
+              },
+            ],
+          })
+        }
+
+        function startAutoPaging() {
+          clearInterval(autoPageTimer)
+          autoPageTimer = setInterval(() => {
+            if (!isAutoPaused.value && totalPages.value > 1) {
+              nextPage()
+            }
+          }, 8000)
+        }
+
+        function handleResize() {
+          updateCategoryIndicator()
+          if (chartInstance) {
+            chartInstance.resize()
+          }
+        }
+
+        watch(selectedCategory, () => {
+          if (currentPage.value > totalPages.value) {
+            currentPage.value = 1
+          }
+          updateCategoryIndicator()
+        })
+
+        watch(totalPages, () => {
+          if (currentPage.value > totalPages.value) {
+            currentPage.value = 1
+          }
+        })
+
+        onMounted(() => {
+          animateCounter('newsTotal', dashboard.stats.newsTotal)
+          animateCounter('hotNews', dashboard.stats.hotNews)
+          updateCategoryIndicator()
+          startAutoPaging()
+
+          clockTimer = setInterval(() => {
+            currentTime.value = new Date()
+          }, 1000)
+
+          nextTick(() => {
+            requestAnimationFrame(() => {
+              initChart()
+              requestAnimationFrame(() => {
+                handleResize()
+              })
+            })
+          })
+
+          window.addEventListener('resize', handleResize)
+        })
+
+        onBeforeUnmount(() => {
+          clearInterval(clockTimer)
+          clearInterval(autoPageTimer)
+          window.removeEventListener('resize', handleResize)
+          if (chartInstance) {
+            chartInstance.dispose()
+            chartInstance = null
+          }
+        })
+
+        return {
+          aiPanels,
+          animatedStats,
+          categories,
+          categoryBarRef,
+          categoryIndicatorStyle,
+          clockParts,
+          currentPage,
+          filteredNews,
+          keywordCloud,
+          meta,
+          nextPage,
+          prevPage,
+          rssState,
+          selectCategory,
+          selectKeyword,
+          selectedCategory,
+          selectedKeyword,
+          setAutoPause,
+          sourceChartRef,
+          statsCards,
+          totalPages,
+          visibleNews,
+        }
+      },
+    }).mount('#app')
+  </script>
+</body>
+</html>
