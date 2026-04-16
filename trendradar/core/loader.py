@@ -68,11 +68,16 @@ def _load_crawler_config(config_data: Dict) -> Dict:
     advanced = config_data.get("advanced", {})
     crawler_config = advanced.get("crawler", {})
     platforms_config = config_data.get("platforms", {})
+    all_sources = platforms_config.get("sources", [])
+    enabled_sources = [source for source in all_sources if source.get("enabled", True)]
     return {
         "REQUEST_INTERVAL": crawler_config.get("request_interval", 100),
         "USE_PROXY": crawler_config.get("use_proxy", False),
         "DEFAULT_PROXY": crawler_config.get("default_proxy", ""),
         "ENABLE_CRAWLER": platforms_config.get("enabled", True),
+        "ENABLE_CUSTOM_SOURCES": platforms_config.get("custom_sources_enabled", True),
+        "PLATFORM_SOURCES_TOTAL": len(all_sources),
+        "PLATFORM_SOURCES_ENABLED": len(enabled_sources),
     }
 
 
@@ -530,7 +535,9 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
 
     # 平台配置
     platforms_config = config_data.get("platforms", {})
-    config["PLATFORMS"] = platforms_config.get("sources", [])
+    all_sources = platforms_config.get("sources", [])
+    config["PLATFORMS"] = [source for source in all_sources if source.get("enabled", True)]
+    config["PLATFORMS_ALL"] = all_sources
 
     # RSS 配置
     config["RSS"] = _load_rss_config(config_data)

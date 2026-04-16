@@ -185,7 +185,10 @@ def get_supported_platforms() -> List[str]:
             config = yaml.safe_load(f)
             platforms_config = config.get('platforms', {})
             sources = platforms_config.get('sources', [])
-            _platforms_cache = [p['id'] for p in sources if 'id' in p]
+            _platforms_cache = [
+                p['id'] for p in sources
+                if 'id' in p and p.get('enabled', True)
+            ]
             _platforms_config_mtime = current_mtime
             return _platforms_cache
     except Exception as e:
@@ -667,4 +670,3 @@ def validate_date_query(
     DateParser.validate_date_not_too_old(parsed_date, max_days=max_days_ago)
 
     return parsed_date
-

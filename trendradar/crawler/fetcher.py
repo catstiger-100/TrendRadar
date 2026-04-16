@@ -5,14 +5,17 @@
 负责从 NewsNow API 抓取新闻数据，支持：
 - 单个平台数据获取
 - 批量平台数据爬取
+- 自定义站点抓取
 - 自动重试机制
 - 代理支持
 """
 
+import html
 import json
 import random
+import re
 import time
-from typing import Dict, List, Tuple, Optional, Union
+from typing import Callable, Dict, List, Tuple, Optional, Union
 
 import requests
 
@@ -32,6 +35,11 @@ class DataFetcher:
         "Cache-Control": "no-cache",
     }
 
+    CUSTOM_SOURCE_HANDLERS = {
+        "jin10-futures": "_fetch_jin10_futures_items",
+        "sina-finance-7x24": "_fetch_sina_finance_7x24_items",
+    }
+
     def __init__(
         self,
         proxy_url: Optional[str] = None,
@@ -46,6 +54,192 @@ class DataFetcher:
         """
         self.proxy_url = proxy_url
         self.api_url = api_url or self.DEFAULT_API_URL
+
+    def _build_proxies(self) -> Optional[Dict[str, str]]:
+        """构建 requests 代理配置"""
+        if not self.proxy_url:
+            return None
+        return {"http": self.proxy_url, "https": self.proxy_url}
+
+    @staticmethod
+    def _normalize_title(raw_title: object) -> str:
+        """清洗标题文本，兼容 HTML/空白字符"""
+        if raw_title is None:
+            return ""
+
+        text = str(raw_title)
+        text = html.unescape(text)
+        text = re.sub(r"<[^>]+>", "", text)
+        text = text.replace("\xa0", " ")
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
+
+    @staticmethod
+    def _append_result_item(
+        items: Dict[str, Dict[str, Union[List[int], str]]],
+        title: str,
+        rank: int,
+        url: str = "",
+        mobile_url: str = "",
+    ) -> None:
+        """向结果集中追加一条标准化新闻记录"""
+        if title in items:
+            items[title]["ranks"].append(rank)
+            if not items[title].get("url") and url:
+                items[title]["url"] = url
+            if not items[title].get("mobileUrl") and mobile_url:
+                items[title]["mobileUrl"] = mobile_url
+            return
+
+        items[title] = {
+            "ranks": [rank],
+            "url": url,
+            "mobileUrl": mobile_url,
+        }
+
+    @staticmethod
+    def _extract_json_from_jsonp(payload: str) -> str:
+        """从 JSONP 响应中提取 JSON 主体"""
+        payload = payload.strip()
+
+        match = re.search(r"^[^(]+\((.*)\)\s*;?\s*$", payload, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+
+        start = payload.find('{"result"')
+        if start == -1:
+            start = payload.find("{")
+
+        end_marker = ");"
+        end = payload.rfind(end_marker)
+        if end != -1 and end > start:
+            return payload[start:end].strip()
+
+        end = payload.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise ValueError("无法从响应中提取 JSON 数据")
+
+        return payload[start:end + 1].strip()
+
+    def _retry_fetch(
+        self,
+        source_id: str,
+        fetch_func: Callable[[], Dict[str, Dict[str, Union[List[int], str]]]],
+        max_retries: int = 2,
+        min_retry_wait: int = 3,
+        max_retry_wait: int = 5,
+    ) -> Optional[Dict[str, Dict[str, Union[List[int], str]]]]:
+        """带重试的结构化数据抓取"""
+        retries = 0
+        while retries <= max_retries:
+            try:
+                items = fetch_func()
+                print(f"获取 {source_id} 成功（自定义源）")
+                return items
+            except Exception as e:
+                retries += 1
+                if retries <= max_retries:
+                    base_wait = random.uniform(min_retry_wait, max_retry_wait)
+                    additional_wait = (retries - 1) * random.uniform(1, 2)
+                    wait_time = base_wait + additional_wait
+                    print(f"请求 {source_id} 失败: {e}. {wait_time:.2f}秒后重试...")
+                    time.sleep(wait_time)
+                else:
+                    print(f"请求 {source_id} 失败: {e}")
+                    return None
+
+        return None
+
+    def _fetch_custom_source(
+        self,
+        source_id: str,
+        max_retries: int = 2,
+        min_retry_wait: int = 3,
+        max_retry_wait: int = 5,
+    ) -> Optional[Dict[str, Dict[str, Union[List[int], str]]]]:
+        """抓取自定义站点数据，返回统一格式结果"""
+        handler_name = self.CUSTOM_SOURCE_HANDLERS.get(source_id)
+        if not handler_name:
+            raise ValueError(f"未知的自定义数据源: {source_id}")
+
+        handler = getattr(self, handler_name)
+        return self._retry_fetch(
+            source_id,
+            handler,
+            max_retries=max_retries,
+            min_retry_wait=min_retry_wait,
+            max_retry_wait=max_retry_wait,
+        )
+
+    def _fetch_jin10_futures_items(self) -> Dict[str, Dict[str, Union[List[int], str]]]:
+        """抓取金十期货快讯"""
+        url = "https://qh-flash-api.jin10.com/get_flash_list?channel=-1"
+        headers = {
+            "User-Agent": self.DEFAULT_HEADERS["User-Agent"],
+            "Accept": "application/json, text/plain, */*",
+            "Origin": "https://qihuo.jin10.com",
+            "Referer": "https://qihuo.jin10.com/",
+            "x-app-id": "KxBcVoDHStE6CUkQ",
+            "x-version": "1.0.0",
+        }
+        response = requests.get(
+            url,
+            headers=headers,
+            proxies=self._build_proxies(),
+            timeout=10,
+        )
+        response.raise_for_status()
+
+        data = response.json()
+        items = {}
+
+        for index, item in enumerate(data.get("data", []), 1):
+            title = self._normalize_title(item.get("data", {}).get("content", ""))
+            if not title:
+                continue
+
+            detail_id = item.get("id")
+            detail_url = (
+                f"https://flash.jin10.com/detail/{detail_id}" if detail_id else ""
+            )
+            self._append_result_item(items, title, index, detail_url, detail_url)
+
+        return items
+
+    def _fetch_sina_finance_7x24_items(self) -> Dict[str, Dict[str, Union[List[int], str]]]:
+        """抓取新浪财经 7x24 快讯"""
+        callback = f"jQuery{int(time.time() * 1000)}"
+        url = (
+            "https://zhibo.sina.com.cn/api/zhibo/feed"
+            f"?callback={callback}&page=1&page_size=20&zhibo_id=152"
+            "&tag_id=0&dire=f&dpc=1&pagesize=20"
+        )
+        response = requests.get(
+            url,
+            headers={"User-Agent": self.DEFAULT_HEADERS["User-Agent"]},
+            proxies=self._build_proxies(),
+            timeout=10,
+        )
+        response.raise_for_status()
+
+        json_text = self._extract_json_from_jsonp(response.text)
+        data = json.loads(json_text)
+        feed_list = data.get("result", {}).get("data", {}).get("feed", {}).get("list", [])
+
+        items = {}
+        for index, item in enumerate(feed_list, 1):
+            title = self._normalize_title(item.get("rich_text", ""))
+            if not title:
+                continue
+
+            detail_id = item.get("id")
+            detail_url = (
+                f"https://finance.sina.com.cn/7x24/notification.shtml?id={detail_id}"
+                if detail_id else ""
+            )
+            self._append_result_item(items, title, index, detail_url, detail_url)
+
+        return items
 
     def fetch_data(
         self,
@@ -73,10 +267,7 @@ class DataFetcher:
             alias = id_value
 
         url = f"{self.api_url}?id={id_value}&latest"
-
-        proxies = None
-        if self.proxy_url:
-            proxies = {"http": self.proxy_url, "https": self.proxy_url}
+        proxies = self._build_proxies()
 
         retries = 0
         while retries <= max_retries:
@@ -141,38 +332,41 @@ class DataFetcher:
                 name = id_value
 
             id_to_name[id_value] = name
-            response, _, _ = self.fetch_data(id_info)
-
-            if response:
-                try:
-                    data = json.loads(response)
-                    results[id_value] = {}
-
-                    for index, item in enumerate(data.get("items", []), 1):
-                        title = item.get("title")
-                        # 跳过无效标题（None、float、空字符串）
-                        if title is None or isinstance(title, float) or not str(title).strip():
-                            continue
-                        title = str(title).strip()
-                        url = item.get("url", "")
-                        mobile_url = item.get("mobileUrl", "")
-
-                        if title in results[id_value]:
-                            results[id_value][title]["ranks"].append(index)
-                        else:
-                            results[id_value][title] = {
-                                "ranks": [index],
-                                "url": url,
-                                "mobileUrl": mobile_url,
-                            }
-                except json.JSONDecodeError:
-                    print(f"解析 {id_value} 响应失败")
-                    failed_ids.append(id_value)
-                except Exception as e:
-                    print(f"处理 {id_value} 数据出错: {e}")
+            if id_value in self.CUSTOM_SOURCE_HANDLERS:
+                source_items = self._fetch_custom_source(id_value)
+                if source_items is not None:
+                    results[id_value] = source_items
+                else:
                     failed_ids.append(id_value)
             else:
-                failed_ids.append(id_value)
+                response, _, _ = self.fetch_data(id_info)
+
+                if response:
+                    try:
+                        data = json.loads(response)
+                        results[id_value] = {}
+
+                        for index, item in enumerate(data.get("items", []), 1):
+                            title = item.get("title")
+                            title = self._normalize_title(title)
+                            if not title:
+                                continue
+
+                            self._append_result_item(
+                                results[id_value],
+                                title,
+                                index,
+                                item.get("url", ""),
+                                item.get("mobileUrl", ""),
+                            )
+                    except json.JSONDecodeError:
+                        print(f"解析 {id_value} 响应失败")
+                        failed_ids.append(id_value)
+                    except Exception as e:
+                        print(f"处理 {id_value} 数据出错: {e}")
+                        failed_ids.append(id_value)
+                else:
+                    failed_ids.append(id_value)
 
             # 请求间隔（除了最后一个）
             if i < len(ids_list) - 1:
