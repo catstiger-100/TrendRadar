@@ -489,11 +489,28 @@
       color: var(--text);
     }
 
-    .panel-subtitle {
-      margin-top: 6px;
-      font-size: 11px;
-      color: var(--text-muted);
-      letter-spacing: 0.08em;
+    .panel-search {
+      width: 160px;
+      height: 30px;
+      padding: 0 10px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: rgba(0, 0, 0, 0.3);
+      color: var(--text);
+      font-size: 13px;
+      font-family: var(--sans);
+      outline: none;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .panel-search:focus {
+      border-color: var(--primary);
+      background: rgba(0, 0, 0, 0.5);
+    }
+
+    .panel-search::placeholder {
+      color: var(--text-faint);
+      font-size: 12px;
     }
 
     .panel-body {
@@ -1095,7 +1112,6 @@
                   <span class="panel-icon"><i class="fa-solid fa-brain"></i></span>
                   <div>
                     <div class="panel-title">AI 热点分析</div>
-                    <div class="panel-subtitle">基于大模型的智能研判</div>
                   </div>
                 </div>
                 <div class="signal-dots">
@@ -1126,13 +1142,19 @@
                   <span class="panel-icon"><i class="fa-solid fa-satellite-dish"></i></span>
                   <div>
                     <div class="panel-title">实时资讯列表</div>
-                    <div class="panel-subtitle">分类标签、分页轮播与热度追踪</div>
                   </div>
                 </div>
                 <div class="signal-dots">
                   <span class="signal-dot"></span>
                   <span>{{ selectedCategory }}</span>
                 </div>
+                <input
+                  class="panel-search"
+                  type="text"
+                  placeholder="搜索关键词..."
+                  v-model="searchKeyword"
+                  @keyup.enter="applySearch"
+                >
               </div>
             </div>
 
@@ -1201,7 +1223,6 @@
                     <span class="panel-icon"><i class="fa-solid fa-cloud"></i></span>
                     <div>
                       <div class="panel-title">实时关键词云</div>
-                      <div class="panel-subtitle">点击关键词可同步筛选对应分类</div>
                     </div>
                   </div>
                 </div>
@@ -1229,7 +1250,6 @@
                     <span class="panel-icon"><i class="fa-solid fa-chart-column"></i></span>
                     <div>
                       <div class="panel-title">资讯来源分布</div>
-                      <div class="panel-subtitle">按热点新闻条数排序的来源活跃度</div>
                     </div>
                   </div>
                 </div>
@@ -1246,7 +1266,6 @@
                     <span class="panel-icon"><i class="fa-solid fa-rss"></i></span>
                     <div>
                       <div class="panel-title">RSS 新增更新</div>
-                      <div class="panel-subtitle">订阅源最新动态</div>
                     </div>
                   </div>
                 </div>
@@ -1715,6 +1734,7 @@
           hotNews: 0,
         })
         const autoRefresh = ref(true)
+        const searchKeyword = ref('')
 
         let chartInstance = null
         let clockTimer = null
@@ -1726,7 +1746,12 @@
         const aiPanels = computed(() => dashboard.aiPanels)
         const keywordCloud = computed(() => dashboard.keywordCloud)
         const rssState = computed(() => dashboard.rssState)
-        const filteredNews = computed(() => dashboard.newsByCategory[selectedCategory.value] || [])
+        const filteredNews = computed(() => {
+          const items = dashboard.newsByCategory[selectedCategory.value] || []
+          const kw = searchKeyword.value.trim()
+          if (!kw) return items
+          return items.filter((item) => item.title.includes(kw))
+        })
         const totalPages = computed(() => Math.max(1, Math.ceil(filteredNews.value.length / pageSize)))
         const visibleNews = computed(() => {
           const start = (currentPage.value - 1) * pageSize
@@ -1842,6 +1867,11 @@
         function selectKeyword(keyword) {
           selectedKeyword.value = keyword.name
           selectedCategory.value = keyword.category
+          searchKeyword.value = ''
+          currentPage.value = 1
+        }
+
+        function applySearch() {
           currentPage.value = 1
         }
 
@@ -2058,6 +2088,8 @@
           selectKeyword,
           selectedCategory,
           selectedKeyword,
+          searchKeyword,
+          applySearch,
           sourceChartRef,
           statsCards,
           toggleAutoRefresh,
