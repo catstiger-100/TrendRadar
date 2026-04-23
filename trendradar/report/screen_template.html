@@ -221,6 +221,111 @@
       letter-spacing: 0.08em;
     }
 
+    .brand-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-left: 16px;
+      position: relative;
+    }
+
+    .settings-toggle {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      cursor: pointer;
+      background: rgba(0, 212, 255, 0.06);
+      border: 1px solid rgba(0, 212, 255, 0.12);
+      color: var(--text-muted);
+      font-size: 14px;
+      transition: color 0.2s, background 0.2s, border-color 0.2s;
+    }
+
+    .settings-toggle:hover {
+      color: var(--primary);
+      background: rgba(0, 212, 255, 0.12);
+      border-color: rgba(0, 212, 255, 0.25);
+    }
+
+    .refresh-status {
+      font-size: 11px;
+      color: var(--text-muted);
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+    }
+
+    .refresh-status.is-on {
+      color: var(--teal);
+    }
+
+    .refresh-status.is-off {
+      color: var(--text-faint);
+    }
+
+    .settings-panel {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      margin-top: 8px;
+      padding: 16px 20px;
+      border-radius: 10px;
+      background: var(--panel-strong);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow-strong);
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 220px;
+    }
+
+    .settings-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+    }
+
+    .settings-label {
+      font-size: 13px;
+      color: var(--text-soft);
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 42px;
+      height: 22px;
+      border-radius: 11px;
+      background: rgba(255, 255, 255, 0.1);
+      cursor: pointer;
+      transition: background 0.25s;
+      flex-shrink: 0;
+    }
+
+    .toggle-switch.is-active {
+      background: rgba(0, 212, 255, 0.45);
+    }
+
+    .toggle-switch::after {
+      content: '';
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      transition: transform 0.25s, background 0.25s;
+    }
+
+    .toggle-switch.is-active::after {
+      transform: translateX(20px);
+      background: #fff;
+    }
+
     .header-clock {
       justify-self: end;
       text-align: right;
@@ -999,6 +1104,23 @@
             <div class="brand-title">{{ meta.title }}</div>
             <div class="brand-subtitle">{{ meta.subtitle }}</div>
           </div>
+          <div class="brand-actions">
+            <span :class="['refresh-status', autoRefresh ? 'is-on' : 'is-off']">
+              {{ autoRefresh ? '自动刷新' : '已暂停' }}
+            </span>
+            <button class="settings-toggle" type="button" @click="showSettings = !showSettings" aria-label="设置">
+              <i class="fa-solid fa-gear"></i>
+            </button>
+            <div class="settings-panel" v-show="showSettings">
+              <div class="settings-row">
+                <span class="settings-label">自动刷新</span>
+                <div
+                  :class="['toggle-switch', { 'is-active': autoRefresh }]"
+                  @click="toggleAutoRefresh"
+                ></div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="header-clock">
@@ -1661,6 +1783,8 @@
           newsTotal: 0,
           hotNews: 0,
         })
+        const autoRefresh = ref(true)
+        const showSettings = ref(false)
 
         let chartInstance = null
         let clockTimer = null
@@ -1919,6 +2043,19 @@
           }
         }
 
+        function toggleAutoRefresh() {
+          autoRefresh.value = !autoRefresh.value
+        }
+
+        watch(autoRefresh, (enabled) => {
+          if (enabled) {
+            refreshTimer = setInterval(refreshScreenData, 60000)
+          } else {
+            clearInterval(refreshTimer)
+            refreshTimer = null
+          }
+        })
+
         function handleResize() {
           updateCategoryIndicator()
           if (chartInstance) {
@@ -1975,6 +2112,7 @@
         return {
           aiPanels,
           animatedStats,
+          autoRefresh,
           categories,
           categoryBarRef,
           categoryIndicatorStyle,
@@ -1990,8 +2128,10 @@
           selectKeyword,
           selectedCategory,
           selectedKeyword,
+          showSettings,
           sourceChartRef,
           statsCards,
+          toggleAutoRefresh,
           totalPages,
           visibleNews,
         }
