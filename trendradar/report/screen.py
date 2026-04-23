@@ -409,23 +409,41 @@ def _build_runtime_block() -> str:
       return min === max ? `${min}` : `${min}-${max}`
     }
 
+    function sortByTimeDesc(items) {
+      return [...items].sort((a, b) => {
+        const parseStart = (str) => {
+          if (!str) return ''
+          const s = str.trim()
+          // 时间范围格式: "08:20~09:30"
+          if (s.includes('~')) return s.split('~')[0].trim()
+          // 日期时间格式: "12-29 08:20" (RSS)
+          return s
+        }
+        const ta = parseStart(a.time_display)
+        const tb = parseStart(b.time_display)
+        if (tb > ta) return 1
+        if (tb < ta) return -1
+        return 0
+      })
+    }
+
     function adaptDashboardData(raw) {
       const categories = Array.isArray(raw.categories) ? raw.categories : []
       const news = Array.isArray(raw.news) ? [...raw.news] : []
       const newsByCategory = {
-        '全部资讯': news.map((item, index) => ({
+        '全部资讯': sortByTimeDesc(news).map((item, index) => ({
           ...item,
           categoryRank: index + 1,
         })),
       }
 
       categories.forEach((category) => {
-        newsByCategory[category.name] = news
-          .filter((item) => item.category === category.name)
-          .map((item, index) => ({
-            ...item,
-            categoryRank: index + 1,
-          }))
+        newsByCategory[category.name] = sortByTimeDesc(
+          news.filter((item) => item.category === category.name)
+        ).map((item, index) => ({
+          ...item,
+          categoryRank: index + 1,
+        }))
       })
 
       return {
