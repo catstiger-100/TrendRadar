@@ -78,6 +78,7 @@ def prepare_report_data(
                     url = title_data.get("url", "")
                     mobile_url = title_data.get("mobileUrl", "")
                     ranks = title_data.get("ranks", [])
+                    matched_keywords = title_data.get("matched_keywords", [])
 
                     processed_title = {
                         "title": title,
@@ -89,6 +90,7 @@ def prepare_report_data(
                         "url": url,
                         "mobile_url": mobile_url,
                         "is_new": True,
+                        "matched_keywords": matched_keywords,
                     }
                     source_titles.append(processed_title)
 
@@ -118,6 +120,7 @@ def prepare_report_data(
                 "url": title_data.get("url", ""),
                 "mobile_url": title_data.get("mobileUrl", ""),
                 "is_new": title_data.get("is_new", False),
+                "matched_keywords": title_data.get("matched_keywords", []),
             }
             processed_titles.append(processed_title)
 

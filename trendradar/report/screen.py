@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -213,14 +214,17 @@ def _build_news_payload(
                 "count": int(title_data.get("count", 1) or 1),
                 "category": category_name,
                 "module": stat["module"],
+                "matched_keywords": title_data.get("matched_keywords", []) or [],
             }
             item["heat_score"] = round(
                 _score_title(item, rank_threshold, weight_config),
                 2,
             )
+            keywords_str = "、".join(item["matched_keywords"]) if item["matched_keywords"] else ""
             item["summary"] = (
                 f"命中「{html_escape(category_name)}」模块，综合热度 {item['heat_score']:.1f}，"
                 f"累计出现 {item['count']} 次。"
+                + (f" 关键词：{html_escape(keywords_str)}。" if keywords_str else "")
             )
             if item["title"] and (item["category"], item["title"], item["source_name"]) not in source_seen:
                 news_items.append(item)

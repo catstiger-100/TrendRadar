@@ -331,6 +331,15 @@ def count_word_frequency(
 
                 source_name = id_to_name.get(source_id, source_id)
 
+                # 收集匹配的关键词
+                matched_keywords: List[str] = []
+                if len(word_groups) > 1 or word_groups[0]["group_key"] != "全部新闻":
+                    for kw in required_words + normal_words:
+                        if _word_matches(kw, title_lower):
+                            kw_name = kw.get("display_name") or kw["word"]
+                            if kw_name not in matched_keywords:
+                                matched_keywords.append(kw_name)
+
                 # 判断是否为新增
                 is_new = False
                 if all_news_are_new:
@@ -355,6 +364,7 @@ def count_word_frequency(
                         "mobileUrl": mobile_url,
                         "is_new": is_new,
                         "rank_timeline": rank_timeline,
+                        "matched_keywords": matched_keywords,
                     }
                 )
 
