@@ -10,7 +10,6 @@ from __future__ import annotations
 import base64
 import json
 import os
-import re
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -97,16 +96,6 @@ def _parse_frequency_modules(
     return ordered_categories, category_to_module
 
 
-def _extract_lead_tag(text: str) -> str:
-    if not text:
-        return "「趋势聚焦」"
-
-    tag_match = re.search(r"全网霸屏|高位共振|风险脉冲|主线升温|强势发酵", text)
-    if tag_match:
-        return f"「{tag_match.group(0)}」"
-    return "「趋势聚焦」"
-
-
 def _ai_html(text: str) -> str:
     if not text:
         return "暂无分析结果"
@@ -119,7 +108,6 @@ def _build_ai_panels(ai_analysis: Optional[Any]) -> List[Dict[str, str]]:
         return [
             {
                 "title": "核心热点态势",
-                "badge": "AI 未启用",
                 "html": "当前运行未生成 AI 热点分析。",
             }
         ]
@@ -133,22 +121,18 @@ def _build_ai_panels(ai_analysis: Optional[Any]) -> List[Dict[str, str]]:
     panels = [
         {
             "title": "核心热点态势",
-            "badge": _extract_lead_tag(core_trends),
             "html": _ai_html(core_trends),
         },
         {
             "title": "舆论风向争议",
-            "badge": "",
             "html": _ai_html(sentiment),
         },
         {
             "title": "异动与弱信号",
-            "badge": "",
             "html": _ai_html(signals),
         },
         {
             "title": "研判策略建议",
-            "badge": "",
             "html": _ai_html(outlook),
         },
     ]
@@ -163,7 +147,6 @@ def _build_ai_panels(ai_analysis: Optional[Any]) -> List[Dict[str, str]]:
             panels.append(
                 {
                     "title": "独立源点速览",
-                    "badge": "",
                     "html": standalone_html,
                 }
             )

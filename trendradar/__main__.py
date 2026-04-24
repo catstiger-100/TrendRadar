@@ -1695,11 +1695,12 @@ def main():
 
         version_url = config.get("VERSION_CHECK_URL", "")
         configs_version_url = config.get("CONFIGS_VERSION_CHECK_URL", "")
+        show_version_update = config.get("SHOW_VERSION_UPDATE", True)
 
         # 统一版本检查（程序版本 + 配置文件版本，只请求一次远程）
         need_update = False
         remote_version = None
-        if version_url:
+        if show_version_update and version_url:
             need_update, remote_version = check_all_versions(version_url, configs_version_url)
 
         # 复用已加载的配置，避免重复加载
