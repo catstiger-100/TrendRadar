@@ -1,0 +1,2858 @@
+
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>热点新闻分析</title>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" integrity="sha512-BNaRQnYJYiPSqHHDb58B0yaPfCu+Wgds8Gp/gU33kqBtgNS4tSPHuGibyoeqMV/TJlSKda6FXzoEyYGjTe+vXA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+        <style>
+            * { box-sizing: border-box; }
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+                margin: 0;
+                padding: 16px;
+                background: #fafafa;
+                color: #333;
+                line-height: 1.5;
+            }
+
+            .container {
+                max-width: 600px;
+                margin: 0 auto;
+                background: white;
+                border-radius: 12px;
+                overflow: hidden;
+                box-shadow: 0 2px 16px rgba(0,0,0,0.06);
+            }
+
+            .header {
+                background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+                color: white;
+                padding: 32px 24px;
+                text-align: center;
+                position: relative;
+            }
+
+            .save-buttons {
+                position: absolute;
+                top: 16px;
+                right: 16px;
+                display: flex;
+                gap: 8px;
+            }
+
+            .save-btn {
+                background: rgba(255, 255, 255, 0.2);
+                border: 1px solid rgba(255, 255, 255, 0.3);
+                color: white;
+                padding: 8px 16px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 13px;
+                font-weight: 500;
+                transition: all 0.2s ease;
+                backdrop-filter: blur(10px);
+                white-space: nowrap;
+            }
+
+            .save-btn:hover {
+                background: rgba(255, 255, 255, 0.3);
+                border-color: rgba(255, 255, 255, 0.5);
+                transform: translateY(-1px);
+            }
+
+            .save-btn:active {
+                transform: translateY(0);
+            }
+
+            .save-btn:disabled {
+                opacity: 0.6;
+                cursor: not-allowed;
+            }
+
+            .header-title {
+                font-size: 22px;
+                font-weight: 700;
+                margin: 0 0 20px 0;
+            }
+
+            .header-info {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 16px;
+                font-size: 14px;
+                opacity: 0.95;
+            }
+
+            .info-item {
+                text-align: center;
+            }
+
+            .info-label {
+                display: block;
+                font-size: 12px;
+                opacity: 0.8;
+                margin-bottom: 4px;
+            }
+
+            .info-value {
+                font-weight: 600;
+                font-size: 16px;
+            }
+
+            .content {
+                padding: 24px;
+            }
+
+            .word-group {
+                margin-bottom: 40px;
+            }
+
+            .word-group:first-child {
+                margin-top: 0;
+            }
+
+            .word-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 20px;
+                padding-bottom: 8px;
+                border-bottom: 1px solid #f0f0f0;
+            }
+
+            .word-info {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+
+            .word-name {
+                font-size: 17px;
+                font-weight: 600;
+                color: #1a1a1a;
+            }
+
+            .word-count {
+                color: #666;
+                font-size: 13px;
+                font-weight: 500;
+            }
+
+            .word-count.hot { color: #dc2626; font-weight: 600; }
+            .word-count.warm { color: #ea580c; font-weight: 600; }
+
+            .word-index {
+                color: #999;
+                font-size: 12px;
+            }
+
+            .news-item {
+                margin-bottom: 20px;
+                padding: 16px 0;
+                border-bottom: 1px solid #f5f5f5;
+                position: relative;
+                display: flex;
+                gap: 12px;
+                align-items: center;
+            }
+
+            .news-item:last-child {
+                border-bottom: none;
+            }
+
+            .news-item.new::after {
+                content: "NEW";
+                position: absolute;
+                top: 12px;
+                right: 0;
+                background: #fbbf24;
+                color: #92400e;
+                font-size: 9px;
+                font-weight: 700;
+                padding: 3px 6px;
+                border-radius: 4px;
+                letter-spacing: 0.5px;
+            }
+
+            .news-number {
+                color: #999;
+                font-size: 13px;
+                font-weight: 600;
+                min-width: 20px;
+                text-align: center;
+                flex-shrink: 0;
+                background: #f8f9fa;
+                border-radius: 50%;
+                width: 24px;
+                height: 24px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                align-self: flex-start;
+                margin-top: 8px;
+            }
+
+            .news-content {
+                flex: 1;
+                min-width: 0;
+                padding-right: 40px;
+            }
+
+            .news-item.new .news-content {
+                padding-right: 50px;
+            }
+
+            .news-header {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin-bottom: 8px;
+                flex-wrap: wrap;
+            }
+
+            .source-name {
+                color: #666;
+                font-size: 12px;
+                font-weight: 500;
+            }
+
+            .keyword-tag {
+                color: #2563eb;
+                font-size: 12px;
+                font-weight: 500;
+                background: #eff6ff;
+                padding: 2px 6px;
+                border-radius: 4px;
+            }
+
+            .rank-num {
+                color: #fff;
+                background: #6b7280;
+                font-size: 10px;
+                font-weight: 700;
+                padding: 2px 6px;
+                border-radius: 10px;
+                min-width: 18px;
+                text-align: center;
+            }
+
+            .rank-num.top { background: #dc2626; }
+            .rank-num.high { background: #ea580c; }
+
+            .time-info {
+                color: #999;
+                font-size: 11px;
+            }
+
+            .count-info {
+                color: #059669;
+                font-size: 11px;
+                font-weight: 500;
+            }
+
+            .news-title {
+                font-size: 15px;
+                line-height: 1.4;
+                color: #1a1a1a;
+                margin: 0;
+            }
+
+            .news-link {
+                color: #2563eb;
+                text-decoration: none;
+            }
+
+            .news-link:hover {
+                text-decoration: underline;
+            }
+
+            .news-link:visited {
+                color: #7c3aed;
+            }
+
+            /* 通用区域分割线样式 */
+            .section-divider {
+                margin-top: 32px;
+                padding-top: 24px;
+                border-top: 2px solid #e5e7eb;
+            }
+
+            /* 热榜统计区样式 */
+            .hotlist-section {
+                /* 默认无边框，由 section-divider 动态添加 */
+            }
+
+            .new-section {
+                margin-top: 40px;
+                padding-top: 24px;
+            }
+
+            .new-section-title {
+                color: #1a1a1a;
+                font-size: 16px;
+                font-weight: 600;
+                margin: 0 0 20px 0;
+            }
+
+            .new-source-group {
+                margin-bottom: 24px;
+            }
+
+            .new-source-title {
+                color: #666;
+                font-size: 13px;
+                font-weight: 500;
+                margin: 0 0 12px 0;
+                padding-bottom: 6px;
+                border-bottom: 1px solid #f5f5f5;
+            }
+
+            .new-item {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 8px 0;
+                border-bottom: 1px solid #f9f9f9;
+            }
+
+            .new-item:last-child {
+                border-bottom: none;
+            }
+
+            .new-item-number {
+                color: #999;
+                font-size: 12px;
+                font-weight: 600;
+                min-width: 18px;
+                text-align: center;
+                flex-shrink: 0;
+                background: #f8f9fa;
+                border-radius: 50%;
+                width: 20px;
+                height: 20px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .new-item-rank {
+                color: #fff;
+                background: #6b7280;
+                font-size: 10px;
+                font-weight: 700;
+                padding: 3px 6px;
+                border-radius: 8px;
+                min-width: 20px;
+                text-align: center;
+                flex-shrink: 0;
+            }
+
+            .new-item-rank.top { background: #dc2626; }
+            .new-item-rank.high { background: #ea580c; }
+
+            .new-item-content {
+                flex: 1;
+                min-width: 0;
+            }
+
+            .new-item-title {
+                font-size: 14px;
+                line-height: 1.4;
+                color: #1a1a1a;
+                margin: 0;
+            }
+
+            .error-section {
+                background: #fef2f2;
+                border: 1px solid #fecaca;
+                border-radius: 8px;
+                padding: 16px;
+                margin-bottom: 24px;
+            }
+
+            .error-title {
+                color: #dc2626;
+                font-size: 14px;
+                font-weight: 600;
+                margin: 0 0 8px 0;
+            }
+
+            .error-list {
+                list-style: none;
+                padding: 0;
+                margin: 0;
+            }
+
+            .error-item {
+                color: #991b1b;
+                font-size: 13px;
+                padding: 2px 0;
+                font-family: 'SF Mono', Consolas, monospace;
+            }
+
+            .footer {
+                margin-top: 32px;
+                padding: 20px 24px;
+                background: #f8f9fa;
+                border-top: 1px solid #e5e7eb;
+                text-align: center;
+            }
+
+            .footer-content {
+                font-size: 13px;
+                color: #6b7280;
+                line-height: 1.6;
+            }
+
+            .footer-link {
+                color: #4f46e5;
+                text-decoration: none;
+                font-weight: 500;
+                transition: color 0.2s ease;
+            }
+
+            .footer-link:hover {
+                color: #7c3aed;
+                text-decoration: underline;
+            }
+
+            .project-name {
+                font-weight: 600;
+                color: #374151;
+            }
+
+            @media (max-width: 480px) {
+                body { padding: 12px; }
+                .header { padding: 24px 20px; }
+                .content { padding: 20px; }
+                .footer { padding: 16px 20px; }
+                .header-info { grid-template-columns: 1fr; gap: 12px; }
+                .news-header { gap: 6px; }
+                .news-content { padding-right: 45px; }
+                .news-item { gap: 8px; }
+                .new-item { gap: 8px; }
+                .news-number { width: 20px; height: 20px; font-size: 12px; }
+                .save-buttons {
+                    position: static;
+                    margin-bottom: 16px;
+                    display: flex;
+                    gap: 8px;
+                    justify-content: center;
+                    flex-direction: column;
+                    width: 100%;
+                }
+                .save-btn {
+                    width: 100%;
+                }
+            }
+
+            /* RSS 订阅内容样式 */
+            .rss-section {
+                margin-top: 32px;
+                padding-top: 24px;
+            }
+
+            .rss-section-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 20px;
+            }
+
+            .rss-section-title {
+                font-size: 18px;
+                font-weight: 600;
+                color: #059669;
+            }
+
+            .rss-section-count {
+                color: #6b7280;
+                font-size: 14px;
+            }
+
+            .feed-group {
+                margin-bottom: 24px;
+            }
+
+            .feed-group:last-child {
+                margin-bottom: 0;
+            }
+
+            .feed-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 12px;
+                padding-bottom: 8px;
+                border-bottom: 2px solid #10b981;
+            }
+
+            .feed-name {
+                font-size: 15px;
+                font-weight: 600;
+                color: #059669;
+            }
+
+            .feed-count {
+                color: #666;
+                font-size: 13px;
+                font-weight: 500;
+            }
+
+            .rss-item {
+                margin-bottom: 12px;
+                padding: 14px;
+                background: #f0fdf4;
+                border-radius: 8px;
+                border-left: 3px solid #10b981;
+            }
+
+            .rss-item:last-child {
+                margin-bottom: 0;
+            }
+
+            .rss-meta {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                margin-bottom: 6px;
+                flex-wrap: wrap;
+            }
+
+            .rss-time {
+                color: #6b7280;
+                font-size: 12px;
+            }
+
+            .rss-author {
+                color: #059669;
+                font-size: 12px;
+                font-weight: 500;
+            }
+
+            .rss-title {
+                font-size: 14px;
+                line-height: 1.5;
+                margin-bottom: 6px;
+            }
+
+            .rss-link {
+                color: #1f2937;
+                text-decoration: none;
+                font-weight: 500;
+            }
+
+            .rss-link:hover {
+                color: #059669;
+                text-decoration: underline;
+            }
+
+            .rss-summary {
+                font-size: 13px;
+                color: #6b7280;
+                line-height: 1.5;
+                margin: 0;
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+            }
+
+            /* 独立展示区样式 - 复用热点词汇统计区样式 */
+            .standalone-section {
+                margin-top: 32px;
+                padding-top: 24px;
+            }
+
+            .standalone-section-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 20px;
+            }
+
+            .standalone-section-title {
+                font-size: 18px;
+                font-weight: 600;
+                color: #059669;
+            }
+
+            .standalone-section-count {
+                color: #6b7280;
+                font-size: 14px;
+            }
+
+            .standalone-group {
+                margin-bottom: 40px;
+            }
+
+            .standalone-group:last-child {
+                margin-bottom: 0;
+            }
+
+            .standalone-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 20px;
+                padding-bottom: 8px;
+                border-bottom: 1px solid #f0f0f0;
+            }
+
+            .standalone-name {
+                font-size: 17px;
+                font-weight: 600;
+                color: #1a1a1a;
+            }
+
+            .standalone-count {
+                color: #666;
+                font-size: 13px;
+                font-weight: 500;
+            }
+
+            /* AI 分析区块样式 */
+            .ai-section {
+                margin-top: 32px;
+                padding: 24px;
+                background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+                border-radius: 12px;
+                border: 1px solid #bae6fd;
+            }
+
+            .ai-section-header {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin-bottom: 20px;
+            }
+
+            .ai-section-title {
+                font-size: 18px;
+                font-weight: 600;
+                color: #0369a1;
+            }
+
+            .ai-section-badge {
+                background: #0ea5e9;
+                color: white;
+                font-size: 11px;
+                font-weight: 600;
+                padding: 3px 8px;
+                border-radius: 4px;
+            }
+
+            .ai-block {
+                margin-bottom: 16px;
+                padding: 16px;
+                background: white;
+                border-radius: 8px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            }
+
+            .ai-block:last-child {
+                margin-bottom: 0;
+            }
+
+            .ai-block-title {
+                font-size: 14px;
+                font-weight: 600;
+                color: #0369a1;
+                margin-bottom: 8px;
+            }
+
+            .ai-block-content {
+                font-size: 14px;
+                line-height: 1.6;
+                color: #334155;
+                white-space: pre-wrap;
+            }
+
+            .ai-error {
+                padding: 16px;
+                background: #fef2f2;
+                border: 1px solid #fecaca;
+                border-radius: 8px;
+                color: #991b1b;
+                font-size: 14px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <div class="save-buttons">
+                    <button class="save-btn" onclick="saveAsImage()">保存为图片</button>
+                    <button class="save-btn" onclick="saveAsMultipleImages()">分段保存</button>
+                </div>
+                <div class="header-title">热点新闻分析</div>
+                <div class="header-info">
+                    <div class="info-item">
+                        <span class="info-label">报告类型</span>
+                        <span class="info-value">当前榜单</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">新闻总数</span>
+                        <span class="info-value">369 条</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">热点新闻</span>
+                        <span class="info-value">150 条</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">生成时间</span>
+                        <span class="info-value">04-17 12:41</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="content">
+                <div class="hotlist-section">
+                <div class="word-group">
+                    <div class="word-header">
+                        <div class="word-info">
+                            <div class="word-name">国际关系</div>
+                            <div class="word-count hot">67 条</div>
+                        </div>
+                        <div class="word-index">1/11</div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">1</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">凤凰网</span><span class="rank-num top">2-4</span><span class="time-info">00:02~12:40</span><span class="count-info">77次</span>
+                            </div>
+                            <div class="news-title"><a href="https://news.ifeng.com/c/8sNEWX5GhXC" target="_blank" class="news-link">伊朗：将就官员被暗杀追究美以责任</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">2</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">今日头条</span><span class="rank-num top">3</span><span class="time-info">11:01~12:40</span><span class="count-info">11次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.toutiao.com/trending/7629291475725189171/" target="_blank" class="news-link">一季度中国经济“成绩单”来了</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">3</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">华尔街见闻</span><span class="rank-num top">2-5</span><span class="time-info">00:02~12:40</span><span class="count-info">76次</span>
+                            </div>
+                            <div class="news-title"><a href="https://wallstreetcn.com/articles/3770156" target="_blank" class="news-link">美对伊启动“经济狂怒”行动、施压达成协议，伊朗斥为经济恐怖主义，称敌人误判战局</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">4</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">凤凰网</span><span class="rank-num top">2-7</span><span class="time-info">02:40~12:40</span><span class="count-info">61次</span>
+                            </div>
+                            <div class="news-title"><a href="https://news.ifeng.com/c/8sN3kmBakib" target="_blank" class="news-link">特朗普：美伊下次会晤或在本周末举行</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">5</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">澎湃新闻</span><span class="rank-num top">2-18</span><span class="time-info">00:02~12:40</span><span class="count-info">77次</span>
+                            </div>
+                            <div class="news-title"><a href="https://m.thepaper.cn/newsDetail_forward_32986818" target="_blank" class="news-link">美方对伊朗启动代号为“经济狂怒”的行动</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">6</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">bilibili 热搜</span><span class="rank-num top">1-9</span><span class="time-info">10:10~12:40</span><span class="count-info">16次</span>
+                            </div>
+                            <div class="news-title"><a href="https://search.bilibili.com/all?keyword=%E5%BC%A0%E9%99%867%E6%AC%A1%E5%87%BA%E8%88%B1%E5%88%B7%E6%96%B0%E4%B8%AD%E5%9B%BD%E8%88%AA%E5%A4%A9%E5%91%98%E7%BA%AA%E5%BD%95" target="_blank" class="news-link">张陆7次出舱刷新中国航天员纪录</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">7</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">财联社热门</span><span class="rank-num top">3-12</span><span class="time-info">09:01~12:40</span><span class="count-info">23次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.cls.cn/detail/2346891" target="_blank" class="news-link">中东迎“曙光”？特朗普：美伊下次会晤或在本周末，以黎同意停火10天！</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">8</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">华尔街见闻</span><span class="rank-num high">4-10</span><span class="time-info">08:50~12:40</span><span class="count-info">23次</span>
+                            </div>
+                            <div class="news-title"><a href="https://wallstreetcn.com/articles/3770182" target="_blank" class="news-link">特朗普：美伊下次会谈可能本周末举行，不排除必要时延长停火，伊朗同意不拥有核武</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">9</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">知乎</span><span class="rank-num high">5-7</span><span class="time-info">08:01~12:40</span><span class="count-info">29次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.zhihu.com/question/2028238414336585868" target="_blank" class="news-link">美以袭击伊朗进入第 49 天，当前局势如何？还有哪些信息值得关注？</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">10</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">抖音</span><span class="rank-num top">2-14</span><span class="time-info">00:02~12:40</span><span class="count-info">77次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.douyin.com/hot/2468545" target="_blank" class="news-link">中国海洋采油技术有多牛</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">11</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">凤凰网</span><span class="rank-num top">2-10</span><span class="time-info">08:01~12:40</span><span class="count-info">29次</span>
+                            </div>
+                            <div class="news-title"><a href="https://news.ifeng.com/c/8sOD2dZ4xdf" target="_blank" class="news-link">“摸着中国石头过河”，苏林此访能学到啥？</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">12</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">今日头条</span><span class="rank-num high">4-16</span><span class="time-info">00:02~12:40</span><span class="count-info">77次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.toutiao.com/trending/7629092863972327443/" target="_blank" class="news-link">中国驻日大使馆接连遭到恐怖威胁</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">13</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">华尔街见闻</span><span class="rank-num high">5-9</span><span class="time-info">00:20~12:40</span><span class="count-info">74次</span>
+                            </div>
+                            <div class="news-title"><a href="https://wallstreetcn.com/articles/3770137" target="_blank" class="news-link">特朗普急了！美伊4月BigDeal可以期待？市场紧盯这两天</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">14</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">微博</span><span class="rank-num high">5-13</span><span class="time-info">10:31~12:40</span><span class="count-info">14次</span>
+                            </div>
+                            <div class="news-title"><a href="https://s.weibo.com/weibo?q=%23%E4%B8%AD%E5%9B%BD%E5%90%91%E4%BC%8A%E6%9C%97%E6%8F%90%E4%BE%9B58%E5%90%A8%E7%89%A9%E8%B5%84%E6%8F%B4%E5%8A%A9%23&amp;t=31&amp;band_rank=13&amp;Refer=top" target="_blank" class="news-link">中国向伊朗提供58吨物资援助</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">15</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">抖音</span><span class="rank-num top">2-19</span><span class="time-info">08:20~12:40</span><span class="count-info">27次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.douyin.com/hot/2468314" target="_blank" class="news-link">外交部回应成为中国人助推中文热</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">16</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">3-62</span><span class="time-info">11:10~12:40</span><span class="count-info">10次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417110900831800" target="_blank" class="news-link">乌克兰总理斯维里登科：我们希望匈牙利选举能帮助解锁针对俄罗斯的第20轮欧盟制裁，并加快欧盟一体化进程。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">17</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">凤凰网</span><span class="rank-num ">6-10</span><span class="time-info">09:31~12:40</span><span class="count-info">20次</span>
+                            </div>
+                            <div class="news-title"><a href="https://news.ifeng.com/c/8sOIolxzIqI" target="_blank" class="news-link">美议员放话：要帮秘鲁从中国拿回钱凯港</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">18</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">百度热搜</span><span class="rank-num ">6-29</span><span class="time-info">10:10~12:40</span><span class="count-info">16次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.baidu.com/s?wd=%E4%BC%8A%E6%9C%97%E6%84%9F%E8%B0%A2%E4%B8%AD%E6%96%B9%E6%8F%B4%E5%8A%A9%E8%BF%9160%E5%90%A8%E8%8D%AF%E5%93%81" target="_blank" class="news-link">伊朗感谢中方援助近60吨药品</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">19</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">bilibili 热搜</span><span class="rank-num ">7-13</span><span class="time-info">11:10~12:40</span><span class="count-info">10次</span>
+                            </div>
+                            <div class="news-title"><a href="https://search.bilibili.com/all?keyword=%E4%B8%AD%E5%9B%BD%E5%90%91%E4%BC%8A%E6%9C%97%E6%8F%90%E4%BE%9B58%E5%90%A8%E7%89%A9%E8%B5%84%E6%8F%B4%E5%8A%A9" target="_blank" class="news-link">中国向伊朗提供58吨物资援助</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">20</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">知乎</span><span class="rank-num ">6-12</span><span class="time-info">00:02~12:40</span><span class="count-info">77次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.zhihu.com/question/2028214096009412938" target="_blank" class="news-link">美方对伊朗启动代号为「经济狂怒」的行动，其具体措施与以往制裁会有何差异？可能对双方谈判有怎样的影响？</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">21</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">百度热搜</span><span class="rank-num ">6-24</span><span class="time-info">08:10~12:40</span><span class="count-info">28次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.baidu.com/s?wd=%E4%BC%8A%E6%80%BB%E7%BB%9F%EF%BC%9A%E4%BC%8A%E6%9C%97%E4%BA%BA%E6%B0%91%E5%AF%B9%E7%BE%8E%E5%9B%BD%E5%AE%8C%E5%85%A8%E5%A4%B1%E5%8E%BB%E4%BF%A1%E4%BB%BB" target="_blank" class="news-link">伊总统：伊朗人民对美国完全失去信任</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">22</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">百度热搜</span><span class="rank-num ">7-23</span><span class="time-info">00:02~12:40</span><span class="count-info">77次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.baidu.com/s?wd=%E9%BB%84%E4%BB%81%E5%8B%8B%EF%BC%9A%E8%8A%AF%E7%89%87%E4%B8%8D%E6%98%AF%E6%B5%93%E7%BC%A9%E9%93%80+%E5%8D%96%E4%B8%AD%E5%9B%BD%E5%92%8B%E4%BA%86" target="_blank" class="news-link">黄仁勋：芯片不是浓缩铀 卖中国咋了</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">23</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">今日头条</span><span class="rank-num ">7-27</span><span class="time-info">00:02~12:40</span><span class="count-info">60次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.toutiao.com/trending/7629248367163424787/" target="_blank" class="news-link">约20名中国学者赴美参会被拒绝入境</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">24</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">今日头条</span><span class="rank-num ">7-29</span><span class="time-info">00:02~12:40</span><span class="count-info">67次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.toutiao.com/trending/7628544773641732106/" target="_blank" class="news-link">苏林乘高铁赴广西对中国高铁聊不停</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">25</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">6-65</span><span class="time-info">11:10~12:40</span><span class="count-info">10次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417110827363800" target="_blank" class="news-link">乌克兰总理斯维里登科：与美国财长贝森特讨论扩大联合投资基金事宜。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">26</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">8-67</span><span class="time-info">11:10~12:40</span><span class="count-info">10次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417110807652800" target="_blank" class="news-link">乌克兰总理斯维里登科：美国同行理解禁止俄罗斯规避制裁的重要性。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">27</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">财联社热门</span><span class="rank-num ">9-13</span><span class="time-info">10:10~12:40</span><span class="count-info">16次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.cls.cn/detail/2346894" target="_blank" class="news-link">英媒称伊朗部署中国卫星监视美军基地，中使馆：坚决反对造谣</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">28</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">9-68</span><span class="time-info">11:10~12:40</span><span class="count-info">10次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417110729121800" target="_blank" class="news-link">乌克兰总理斯维里登科：告诉美国财长贝森特，对俄罗斯的制裁不应被削弱、免除或推迟。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">29</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">今日头条</span><span class="rank-num ">9-29</span><span class="time-info">00:31~12:40</span><span class="count-info">61次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.toutiao.com/trending/7628239684956520490/" target="_blank" class="news-link">警察带台胞走中国公民专用通道</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">30</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">10-69</span><span class="time-info">11:10~12:40</span><span class="count-info">10次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417110727466800" target="_blank" class="news-link">【热轧板卷：3月挖掘机内销创近三年新高，国内板材需求韧性十足】金十期货4月17日讯，中国工程机械工业协会发布的统计数据，2026年3月挖掘机总销量为3.74万台，同比增长26.4%，其中国内销售挖掘机2.41万台，同比增长23.5%，为近三年新高水平；出口挖掘机1.33万台，同比增长32%。挖掘机作为基建领域的晴雨表，其产销量大增彰显出3月份中国新开工建设的项目较为集中，板材等钢铁产品需求尚有后劲。回归到挖掘机行业用钢量来看，板材作为挖掘机生产过程中的重要原材料，主要应用于挖斗、底盘、车轮钢、力臂、机壳等。3月挖掘机行业对板材产品消耗量达49.74万吨，同比增加26.41%，环比2月份增加117.13%，呈现翻番局面。4月份来看，随着“八纵八横”高速铁路主通道和国家高速公路网等一系列国家级重大项目开工建设，以及中国挖掘机出口水平逐步向好，挖掘机行业将继续成为板材需求增长的重要行业之一。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">31</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">澎湃新闻</span><span class="rank-num ">11-16</span><span class="time-info">09:31~12:40</span><span class="count-info">20次</span>
+                            </div>
+                            <div class="news-title"><a href="https://m.thepaper.cn/newsDetail_forward_32985465" target="_blank" class="news-link">她工资腰斩，却想学开飞机去轰炸伊朗</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">32</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">11-70</span><span class="time-info">11:10~12:40</span><span class="count-info">10次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417110720255800" target="_blank" class="news-link">乌克兰总理斯维里登科：与美国财政部长贝森特进行了非常友好的会谈。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">33</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">百度热搜</span><span class="rank-num ">13-28</span><span class="time-info">10:10~12:40</span><span class="count-info">12次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.baidu.com/s?wd=%E8%8B%8F%E6%9E%97%E5%A4%AB%E4%BA%BA%E8%BA%AB%E8%BE%B9%E7%9A%84%E4%B8%AD%E5%9B%BD%E5%A5%B3%E4%BF%9D%E9%95%96%E7%81%AB%E4%BA%86" target="_blank" class="news-link">苏林夫人身边的中国女保镖火了</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">34</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">澎湃新闻</span><span class="rank-num ">14-19</span><span class="time-info">09:31~12:40</span><span class="count-info">20次</span>
+                            </div>
+                            <div class="news-title"><a href="https://m.thepaper.cn/newsDetail_forward_32990291" target="_blank" class="news-link">英媒称伊朗部署中国卫星监视美军基地，中使馆：坚决反对造谣</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">35</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">今日头条</span><span class="rank-num ">15-30</span><span class="time-info">00:02~12:40</span><span class="count-info">65次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.toutiao.com/trending/7628829127155826738/" target="_blank" class="news-link">伊朗总统感谢中国</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">36</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">百度热搜</span><span class="rank-num ">19-30</span><span class="time-info">10:31~12:40</span><span class="count-info">14次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.baidu.com/s?wd=%E4%B8%AD%E4%BD%BF%E9%A6%86%E6%8F%90%E9%86%92%E5%9C%A8%E6%97%A5%E4%B8%AD%E5%9B%BD%E5%85%AC%E6%B0%91%E6%B3%A8%E6%84%8F%E4%BA%BA%E8%BA%AB%E5%AE%89%E5%85%A8" target="_blank" class="news-link">中使馆提醒在日中国公民注意人身安全</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">37</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">7-54</span><span class="time-info">11:20~12:40</span><span class="count-info">9次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417111510774800" target="_blank" class="news-link">【美国移民与海关执法局代理局长将离职】金十数据4月17日讯，美国国土安全部长马克韦恩·马林16日宣布，美国移民与海关执法局代理局长托德·莱昂斯将于5月底离职。马林在社交媒体上发表声明说，莱昂斯的任期将于5月31日结束。白宫发言人阿比盖尔·杰克逊在社交媒体上转发莱昂斯已向马林递交辞呈的报道。目前尚不清楚莱昂斯辞职的原因，也不清楚谁将接替他。（新华社）</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">38</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num high">4-40</span><span class="time-info">11:31~12:40</span><span class="count-info">8次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417112757750800" target="_blank" class="news-link">【蒙古国ER公司1.28万吨炼焦煤全部成交，成交价格955元/吨】金十期货4月17日讯，4月17日蒙古国ER公司炼焦煤进行线上竞拍，蒙3#精煤A11、V20-28、S0.85、G75、Mt10起拍价900元/吨，挂牌数量1.28万吨全部成交，成交价格955元/吨，较上期15日上涨15元/吨，以上价格均不含税。供货地点为中国甘其毛都口岸监管区，供货时间为付款后90天内，最后供应日期为2026年7月16日。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">39</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">1-28</span><span class="time-info">11:41~12:40</span><span class="count-info">7次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417113946574800" target="_blank" class="news-link">印尼盾兑美元触及17,190的纪录低点。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">40</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">凤凰网</span><span class="rank-num high">5</span><span class="time-info">12:11~12:40</span><span class="count-info">4次</span>
+                            </div>
+                            <div class="news-title"><a href="https://news.ifeng.com/c/8sOWMZF2Xf3" target="_blank" class="news-link">美国核动力航母又起火，这次是“艾森豪威尔”号</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">41</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">今日头条</span><span class="rank-num ">8-29</span><span class="time-info">11:20~12:40</span><span class="count-info">8次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.toutiao.com/trending/7629530153169698852/" target="_blank" class="news-link">沙特巴基斯坦联盟的建立意味着什么</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">42</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十数据</span><span class="rank-num top">1-17</span><span class="time-info">12:01~12:40</span><span class="count-info">5次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417114818945800" target="_blank" class="news-link">美国众议院共和党领导层正接近通过小幅改革来延长《涉外情报监视法》（FISA）的有效期。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">43</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十数据</span><span class="rank-num top">2-18</span><span class="time-info">12:01~12:40</span><span class="count-info">5次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417114659303800" target="_blank" class="news-link">美国众议院计划在夜间对《涉外情报监视法》进行投票。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">44</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十数据</span><span class="rank-num top">3-19</span><span class="time-info">12:01~12:40</span><span class="count-info">5次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417114248677800" target="_blank" class="news-link">美国共和党参议员格雷厄姆（特朗普的盟友）称，他不信任黎巴嫩武装部队能够解除真主党的武装。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">45</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十数据</span><span class="rank-num top">1</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417122220882800" target="_blank" class="news-link">罗马尼亚国防部表示，雷达捕捉到俄罗斯无人机侵犯国家空域。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">46</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">6-33</span><span class="time-info">11:41~12:40</span><span class="count-info">7次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417113351020800" target="_blank" class="news-link">澳大利亚政府官员：澳大利亚将从印度尼西亚进口25万吨尿素肥料。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">47</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">9-36</span><span class="time-info">11:41~12:40</span><span class="count-info">7次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417113055463800" target="_blank" class="news-link">【国家发改委：智能化不是简单替代人，要找准平衡点】金十数据4月17日讯，4月17日，国新办举行“开局起步‘十五五’”系列主题新闻发布会，国家发展改革委产业发展司司长傅久岭表示，智能化的目的是提升效率，不是简单替代劳动者，要找准政策平衡点。傅久岭表示，“十五五”时期，构建以先进制造业为骨干的现代化产业体系是重中之重。下一步，将重点推动制造业高端化、智能化、绿色化发展。此外，绿色化方面，碳达峰碳中和是中国政府的庄严承诺，也是产业升级的主动选择。要实现这个目标需要付出艰苦的努力。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">48</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num high">4-27</span><span class="time-info">11:50~12:40</span><span class="count-info">6次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417114248677800" target="_blank" class="news-link">美国共和党参议员格雷厄姆（特朗普的盟友）称，他不信任黎巴嫩武装部队能够解除真主党的武装。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">49</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十数据</span><span class="rank-num ">6-22</span><span class="time-info">12:01~12:40</span><span class="count-info">5次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417113946574800" target="_blank" class="news-link">印尼盾兑美元触及17,190的纪录低点。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item new">
+                        <div class="news-number">50</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">新浪财经 7x24</span><span class="rank-num high">5</span><span class="time-info">12:40</span>
+                            </div>
+                            <div class="news-title"><a href="https://finance.sina.com.cn/7x24/notification.shtml?id=4821817" target="_blank" class="news-link">【消博会AI国货惊艳亮相，科技赋能消费体验升级】第六届中国国际消费品博览会上，国货品牌通过前沿科技和AI技术全面赋能消费场景，带来全新的消费体验。AI智能评测、中医机器人、AI眼镜等创新产品亮相，展现了科技与消费的深度融合。本届消博会不仅是一个展示平台，更是一个商业化的实践场，科技产品大量实现量产并标价出售，推动消费升级。国货以科技力与体验感，将“心动”转化为订单，用中国创新点亮全球消费新趋势。（央视新闻）</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">51</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">微博</span><span class="rank-num ">6-16</span><span class="time-info">12:01~12:40</span><span class="count-info">5次</span>
+                            </div>
+                            <div class="news-title"><a href="https://s.weibo.com/weibo?q=%E4%B8%AD%E5%9B%BD%E5%A5%B3%E7%94%9F%E5%9C%A8%E9%9F%A9%E9%81%AD%E7%94%B7%E5%AD%90%E6%80%A7%E9%AA%9A%E6%89%B0%E8%A2%AB%E5%8A%9D%E5%92%8C%E8%A7%A3&amp;t=31&amp;band_rank=6&amp;Refer=top" target="_blank" class="news-link">中国女生在韩遭男子性骚扰被劝和解</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">52</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十数据</span><span class="rank-num ">11-27</span><span class="time-info">12:01~12:40</span><span class="count-info">5次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417113351020800" target="_blank" class="news-link">澳大利亚政府官员：澳大利亚将从印度尼西亚进口25万吨尿素肥料。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">53</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">1-7</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417123007478800" target="_blank" class="news-link">贸易消息人士：印度银行业暂停向海外供应商进口黄金和白银。由于政府命令延迟，印度各银行仍在等待进口金银的清关。约有5吨黄金和8吨白银因未获海关清关而滞留。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">54</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">新浪财经 7x24</span><span class="rank-num top">1-7</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://finance.sina.com.cn/7x24/notification.shtml?id=4821815" target="_blank" class="news-link">贸易消息人士：因政府政令迟迟未出台，印度银行等待进口黄金白银清关放行。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">55</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">新浪财经 7x24</span><span class="rank-num top">2-8</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://finance.sina.com.cn/7x24/notification.shtml?id=4821814" target="_blank" class="news-link">贸易消息人士：印度约5公吨黄金、8公吨白银因未办理清关手续滞港。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">56</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">新浪财经 7x24</span><span class="rank-num top">3-9</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://finance.sina.com.cn/7x24/notification.shtml?id=4821813" target="_blank" class="news-link">贸易消息源：印度多家银行暂停向海外供应商下达黄金与白银进口订单。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">57</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">凤凰网</span><span class="rank-num ">8</span><span class="time-info">12:11~12:40</span><span class="count-info">4次</span>
+                            </div>
+                            <div class="news-title"><a href="https://news.ifeng.com/c/8sOVPzGvey0" target="_blank" class="news-link">特朗普喊话意大利：你不帮我，我也不会帮你</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">58</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">6-18</span><span class="time-info">12:11~12:40</span><span class="count-info">4次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417120203596800" target="_blank" class="news-link">【中越签署一系列合作文件】金十数据4月17日讯，4月14日至17日，越共中央总书记、国家主席苏林对中国进行国事访问，中共中央总书记、国家主席习近平同苏林举行会谈。访问期间，双方有关部门和地方签署了多份合作文件。（新华社）</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">59</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">7-19</span><span class="time-info">12:11~12:40</span><span class="count-info">4次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417120128274800" target="_blank" class="news-link">马来西亚3月消费者价格指数较上年同期上升1.7%，符合市场预期。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">60</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">新浪财经 7x24</span><span class="rank-num ">6-13</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://finance.sina.com.cn/7x24/notification.shtml?id=4821809" target="_blank" class="news-link">【中国中煤在衢州投资成立新能源公司】企查查APP显示，近日，中煤（衢州）新能源有限公司成立，注册资本5000万元，经营范围包含：发电技术服务；风力发电技术服务；太阳能发电技术服务等。企查查股权穿透显示，该公司由中国中煤能源集团有限公司间接全资持股。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">61</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">新浪财经 7x24</span><span class="rank-num ">9-16</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://finance.sina.com.cn/7x24/notification.shtml?id=4821806" target="_blank" class="news-link">罗马尼亚国防部表示，雷达探测到俄罗斯无人机侵入本国领空。 该部门称，在俄无人机夜间对邻国乌克兰发动袭击的过程中，雷达随后与这架俄罗斯无人机失去了联系。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">62</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十数据</span><span class="rank-num ">10</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417120128274800" target="_blank" class="news-link">马来西亚3月消费者价格指数较上年同期上升1.7%，符合市场预期。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">63</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十数据</span><span class="rank-num ">13</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417120037670800" target="_blank" class="news-link">动物精神强势回归，散户无视伊朗冲突涌入美股</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">64</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十数据</span><span class="rank-num ">16</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417114936494800" target="_blank" class="news-link">美国中央司令部：4月16日，海军“亚伯拉罕·林肯”号航空母舰（CVN72）在阿拉伯海执行美国封锁行动。该舰搭载的舰载航空联队包括8架F-35C隐形战斗机、F/A-18战斗机、EA-18G电子攻击机、E-2D指挥控制飞机、MH-60直升机和CMV-22B鱼鹰倾转旋翼机，用于后勤支援。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item new">
+                        <div class="news-number">65</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">6</span><span class="time-info">12:40</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417123107464800" target="_blank" class="news-link">【马棕油早盘收盘行情】金十期货4月17日讯，北京时间12:30，BMD马来西亚棕榈油主力合约收跌0.47%，报4474林吉特/吨。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item new">
+                        <div class="news-number">66</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">bilibili 热搜</span><span class="rank-num ">10</span><span class="time-info">12:40</span>
+                            </div>
+                            <div class="news-title"><a href="https://search.bilibili.com/all?keyword=%E6%9B%9DIEM%E4%B8%AD%E5%9B%BD%E7%AB%99%E6%88%96%E5%9C%A8%E5%8C%97%E4%BA%AC%E4%B8%BE%E5%8A%9E" target="_blank" class="news-link">曝IEM中国站或在北京举办</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item new">
+                        <div class="news-number">67</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">凤凰网</span><span class="rank-num ">11</span><span class="time-info">12:40</span>
+                            </div>
+                            <div class="news-title"><a href="https://news.ifeng.com/c/8sOXeDQu1D9" target="_blank" class="news-link">19岁中国女子在泰国与通缉犯男友演“绑架案”骗父赎金</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="word-group">
+                    <div class="word-header">
+                        <div class="word-info">
+                            <div class="word-name">经济数据</div>
+                            <div class="word-count hot">14 条</div>
+                        </div>
+                        <div class="word-index">2/11</div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">1</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">抖音</span><span class="rank-num top">3</span><span class="time-info">11:10~12:40</span><span class="count-info">10次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.douyin.com/hot/2469090" target="_blank" class="news-link">一季度GDP增长5.0%开局良好</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">2</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">华尔街见闻</span><span class="rank-num ">9</span><span class="time-info">10:20~12:40</span><span class="count-info">14次</span>
+                            </div>
+                            <div class="news-title"><a href="https://wallstreetcn.com/articles/3770155" target="_blank" class="news-link">态度大反转！贝森特连续两天表态，支持美联储“按兵不动”，战争阴云下降息预期降温</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">3</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">7-34</span><span class="time-info">11:41~12:40</span><span class="count-info">7次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417113121895800" target="_blank" class="news-link">【国债期货早盘收盘】金十期货4月17日讯，2年期国债期货（TS）主力合约涨0.02%，5年期国债期货（TF）主力合约涨0.06%，10年期国债期货（T）主力合约涨0.08%，30年期国债期货（TL）主力合约涨0.27%。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">4</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">1-21</span><span class="time-info">12:01~12:40</span><span class="count-info">5次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417120051515800" target="_blank" class="news-link">马来西亚第一季度GDP同比增长5.3%，市场预期增长5.5%。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item new">
+                        <div class="news-number">5</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">2</span><span class="time-info">12:40</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417123816450800" target="_blank" class="news-link">【调查：通胀飙升，欧洲央行将于6月加息】金十数据4月17日讯，据彭博社4月9日至15日进行的一项调查，由于伊朗战争导致今年通货膨胀率上升，欧洲央行将于6月提高利率。不过，此次0.25个百分点的加息很可能是唯一的此类举措，因为这场冲突不会造成长期的价格冲击。调查显示，预计欧元区今年的通货膨胀率将升至2.8%——高于此前预测的2%。随后，预计到2026年将回落至2.1%，到2027年则会降至2%——这与欧洲央行的目标相符。据知情人士透露，欧洲央行官员目前倾向于在4月底的下次会议上维持利率不变。包括德国央行行长在内的部分人士认为，在那个时候采取行动的可能性也不能排除。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item new">
+                        <div class="news-number">6</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">新浪财经 7x24</span><span class="rank-num top">3</span><span class="time-info">12:40</span>
+                            </div>
+                            <div class="news-title"><a href="https://finance.sina.com.cn/7x24/notification.shtml?id=4821819" target="_blank" class="news-link">德意志银行预计，美联储将在2026年维持利率不变，此前该行曾预测美联储会在2026年9月降息。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item new">
+                        <div class="news-number">7</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num high">4</span><span class="time-info">12:40</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417123636630800" target="_blank" class="news-link">德意志银行预计，美联储在2026年维持利率不变，而之前的预测是将在9月份降息。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item new">
+                        <div class="news-number">8</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num high">5</span><span class="time-info">12:40</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417123323134800" target="_blank" class="news-link">【由于政府审批延迟，印度银行业暂停黄金和白银进口】金十数据4月17日讯，贸易消息人士表示，由于政府尚未正式下达进口贵金属的授权令，印度银行业已暂停向海外供应商订购黄金和白银，大量贵金属滞留在海关。如果没有新的进口，印度可能面临供应短缺。作为全球第二大黄金消费国和最大的白银买家，印度几乎完全依赖海外采购来满足其需求。印度需求疲软可能会对全球黄金和白银价格构成压力，同时缩小该国的贸易逆差，并支撑卢比汇率。卢比是今年迄今为止表现最差的亚洲货币之一。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">9</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十数据</span><span class="rank-num ">13-29</span><span class="time-info">12:01~12:40</span><span class="count-info">5次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417113202485800" target="_blank" class="news-link">IMF总裁格奥尔基耶娃：很高兴与日本央行行长植田和男会面。得益于稳健的政策，日本经济展现出韧性，能够很好地应对全球经济不确定性。IMF非常重视与日本的长期合作关系。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">10</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十数据</span><span class="rank-num ">14-30</span><span class="time-info">12:01~12:40</span><span class="count-info">5次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417113121895800" target="_blank" class="news-link">国债期货早盘收盘</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">11</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">2-8</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417123000000800" target="_blank" class="news-link">1. 本周Mysteel统计全国136家独立硅铁企业开工率为30.4%，环比上周增1.51%；日均产量为15975吨，环比上周增5.65%。全国187家独立硅锰企业开工率为28.9%，较上周增1.1%；日均产量为24015吨，增825吨。 2. 据隆众资讯，截至4月16日当周，中国苯乙烯工厂总产量为36.6万吨，环比减少0.28万吨，减幅0.76%；工厂开工率为72.97%，环比下降0.57% 3. 据新华财经报道，国家发展改革委副主任王昌林17日在国新办新闻发布会上表示，推动今年的7550亿元中央预算内投资、1万亿元超长期特别国债于6月底前基本下达完毕。 4. 中国人民银行将实施好适度宽松的货币政策，以高质量金融服务助力中国式现代化，为全球经济增长贡献中国力量。 5. 4月17日，国新办举行“开局起步‘十五五’”系列主题新闻发布会，介绍“十五五”时期推动经济社会高质量发展有关情况。国家发展改革委副主任王昌林表示，预计到2030年非化石能源供应规模将比2025年显著增长，2035年比2025年实现倍增。 6. 新华社消息，中越联合声明：探讨扩大本币结算范围，提高抵御金融风险能力 7. 截至4月17日当周，自繁自养生猪养殖利润为亏损446.23元/头，4月10日为亏损423.6元/头，外购仔猪养殖利润为亏损290.48元/头，4月10日为亏损269.91元/头。 8. 国家发展改革委副主任王昌林表示，下一步，要深入实施“十五五”规划纲要，推动国家级专项规划出台，加快推进109项重大工程项目实施，不断巩固拓展经济稳中向好的态势。 9. 据SMM消息，本周磷酸铁价格继续上行调整。生产端，由于原料价格持续波动，部分磷酸铁企业有意减产，一体化企业产量有所增长。下游订单方面，目前4月磷酸铁锂需求依然旺盛，订单持续增加约4%以上。 10. 据Mysteel调研了解，本周中国氧化铝社会库存为590.7万吨，较上周增加2万吨。 11. 据外媒报道，泰国国内贸易局（DIT）正在加强对泼水节后棕榈油收购的监管，命令立即对收购场和榨油厂进行检查，以防止不公平定价行为。 12. 新华社消息，伊朗伊斯兰革命卫队17日凌晨在社交媒体平台发布消息称，一名抵抗阵线指挥官透露，已向曼德海峡所有商业与军事船只发出严厉且前所未有的警告。 13. Mysteel统计全国45个港口进口铁矿库存总量16747.83万吨，环比下降232.62万吨。全国47个港口进口铁矿库存总量17465.43万吨，环比下降228.05万吨。 14. 淡水河谷2026年第一季度铁矿石产量总计6970万吨，同比增长3%（200万吨）。铜产量总计10.23万吨，同比增长13%（1.14万吨）。镍产量总计4.93万吨，同比增长12%（0.54万吨）。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">12</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">8-20</span><span class="time-info">12:11~12:40</span><span class="count-info">4次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417120112893800" target="_blank" class="news-link">马来西亚第一季度GDP初步估计显示，矿业产出同比收缩1.1%。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">13</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十数据</span><span class="rank-num ">11</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417120112893800" target="_blank" class="news-link">马来西亚第一季度GDP初步估计显示，矿业产出同比收缩1.1%。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">14</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十数据</span><span class="rank-num ">12</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417120051515800" target="_blank" class="news-link">马来西亚第一季度GDP同比增长5.3%，市场预期增长5.5%。</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="word-group">
+                    <div class="word-header">
+                        <div class="word-info">
+                            <div class="word-name">特定品种板块</div>
+                            <div class="word-count hot">14 条</div>
+                        </div>
+                        <div class="word-index">3/11</div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">1</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">华尔街见闻</span><span class="rank-num top">1-4</span><span class="time-info">00:02~12:40</span><span class="count-info">76次</span>
+                            </div>
+                            <div class="news-title"><a href="https://wallstreetcn.com/articles/3770109" target="_blank" class="news-link">中东紧张局势持续，美股勉强新高，纳指十二连涨，中概股指跑赢大盘，原油两连涨</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">2</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">百度热搜</span><span class="rank-num top">2-30</span><span class="time-info">08:10~12:40</span><span class="count-info">25次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.baidu.com/s?wd=%E8%B5%B7%E7%8C%9B%E4%BA%86+%E7%9C%8B%E5%88%B0%E6%9C%BA%E5%99%A8%E4%BA%BA%E4%BA%A4%E8%AD%A6%E5%9C%A8%E6%8C%87%E6%8C%A5%E4%BA%A4%E9%80%9A" target="_blank" class="news-link">起猛了 看到机器人交警在指挥交通</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">3</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">财联社热门</span><span class="rank-num high">4-12</span><span class="time-info">08:01~12:40</span><span class="count-info">29次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.cls.cn/detail/2346818" target="_blank" class="news-link">OpenAI推出AI代理升级 可以“与你并肩操作你的电脑”</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">4</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">财联社热门</span><span class="rank-num ">8-13</span><span class="time-info">08:31~12:40</span><span class="count-info">26次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.cls.cn/detail/2346898" target="_blank" class="news-link">Meta上调VR头显价格 原油反弹铝价升至多年新高 | 环球市场</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">5</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">百度热搜</span><span class="rank-num ">16</span><span class="time-info">11:01~12:40</span><span class="count-info">11次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.baidu.com/s?wd=%E6%AC%A7%E6%B4%B2%E4%BB%85%E5%89%A9%E5%A4%9F%E7%94%A86%E5%91%A8%E8%88%AA%E7%A9%BA%E7%87%83%E6%B2%B9" target="_blank" class="news-link">欧洲仅剩够用6周航空燃油</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">6</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">今日头条</span><span class="rank-num ">7-19</span><span class="time-info">11:20~12:40</span><span class="count-info">9次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.toutiao.com/trending/7629525766065864714/" target="_blank" class="news-link">苏林试戴人工智能眼镜</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">7</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">3-39</span><span class="time-info">11:31~12:40</span><span class="count-info">8次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417112813494800" target="_blank" class="news-link">【发改委：将聚焦人工智能、商业航天等领域，推出一系列促进民间投资的政策和改革举措】金十数据4月17日讯，国新办4月17日上午举行“开局起步‘十五五’”系列主题新闻发布会，国家发展改革委副主任王昌林表示，在民间投资方面，将进一步完善民营企业参与重大项目建设长效机制，聚焦数字经济、人工智能、商业航天等高成长性领域，推出一系列促进民间投资的政策和改革举措，鼓励中央企业与民营企业协同推进关键核心技术攻关等重点项目，加快推动基础设施REITs市场扩容提效，持续激发民间投资活力。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">8</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">bilibili 热搜</span><span class="rank-num high">4-5</span><span class="time-info">12:11~12:40</span><span class="count-info">4次</span>
+                            </div>
+                            <div class="news-title"><a href="https://search.bilibili.com/all?keyword=%E6%9C%BA%E5%99%A8%E4%BA%BA%E9%A9%AC%E6%8B%89%E6%9D%BE%E6%8E%92%E4%BD%8D%E8%B5%9B%E5%A4%A7%E8%B5%8F" target="_blank" class="news-link">机器人马拉松排位赛大赏</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">9</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十数据</span><span class="rank-num ">7-23</span><span class="time-info">12:01~12:40</span><span class="count-info">5次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417113928326800" target="_blank" class="news-link">金十数据整理：每日人工智能动态汇总（2026-04-17）</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">10</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">新浪财经 7x24</span><span class="rank-num top">1-18</span><span class="time-info">12:20~12:40</span><span class="count-info">3次</span>
+                            </div>
+                            <div class="news-title"><a href="https://finance.sina.com.cn/7x24/notification.shtml?id=4821803" target="_blank" class="news-link">【苹果31年元老、营销副总裁斯坦·吴宣布退休】当地时间4月16日，苹果公司负责产品营销的副总裁斯坦·吴（Stan Ng）在社交平台宣布，在为公司效力31年后正式退休。斯坦·吴自1995年加入苹果，是少数亲历了从iPod到Apple Vision Pro所有重大产品更迭的高管。他曾长期主导Apple Watch的市场战略，是苹果发布会的常客。他在告别信中表示：“在苹果工作是一件非常快乐的事情。”</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">11</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">新浪财经 7x24</span><span class="rank-num top">3-20</span><span class="time-info">12:20~12:40</span><span class="count-info">3次</span>
+                            </div>
+                            <div class="news-title"><a href="https://finance.sina.com.cn/7x24/notification.shtml?id=4821801" target="_blank" class="news-link">苹果公司负责手表、AIRPODS和智能家居的营销主管STAN NG即将退休。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">12</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">新浪财经 7x24</span><span class="rank-num high">4-10</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://finance.sina.com.cn/7x24/notification.shtml?id=4821812" target="_blank" class="news-link">【具身智能公司加速进化（Booster）于近日完成近10亿元融资】具身智能公司加速进化（Booster）于近日完成近10亿元融资。本轮融资由北京高精尖产业基金、京国盛基金与华控基金联合领投。该公司披露的关键经营数据显示：2026年一季度出货量同比增长500%，达2025年前8个月总和；1-2月新签订单同比增长超800%，在手订单数亿元。2025年12月，该公司实现经营性现金流回正。本轮融资将用于全球化交付网络建设、具身模型算法开发、机器人产品迭代升级。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">13</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">新浪财经 7x24</span><span class="rank-num ">8-15</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://finance.sina.com.cn/7x24/notification.shtml?id=4821807" target="_blank" class="news-link">【领益智造北京超级工厂首批人形机器人成功下线】2026年4月17日，领益智造北京具身智能超级工厂首批人形机器人下线仪式在北京亦庄小米产业园举行。下线产品涵盖天工Ultra、天工3.0等机型，这标志着京津冀首个具备高自动化、高兼容性、全链条的具身智能超级工厂正式进入规模化交付阶段。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item new">
+                        <div class="news-number">14</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">新浪财经 7x24</span><span class="rank-num ">6</span><span class="time-info">12:40</span>
+                            </div>
+                            <div class="news-title"><a href="https://finance.sina.com.cn/7x24/notification.shtml?id=4821816" target="_blank" class="news-link">【燕东微成立新公司，含多项集成电路业务】企查查APP显示，近日，北京优电摩尔科技有限公司成立，经营范围包含：集成电路销售；集成电路制造；集成电路设计；集成电路芯片及产品销售等。企查查股权穿透显示，该公司由燕东微全资持股。</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="word-group">
+                    <div class="word-header">
+                        <div class="word-info">
+                            <div class="word-name">社会动荡</div>
+                            <div class="word-count hot">13 条</div>
+                        </div>
+                        <div class="word-index">4/11</div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">1</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">凤凰网</span><span class="rank-num top">1-6</span><span class="time-info">00:02~12:40</span><span class="count-info">77次</span>
+                            </div>
+                            <div class="news-title"><a href="https://news.ifeng.com/loc/timeline/event/8r727OWpK5W" target="_blank" class="news-link">伊朗战争丨美国部署到中东的军舰物资短缺，士气低落</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">2</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">贴吧</span><span class="rank-num high">4-13</span><span class="time-info">08:40~12:40</span><span class="count-info">25次</span>
+                            </div>
+                            <div class="news-title"><a href="https://tieba.baidu.com/hottopic/browse/hottopic?amp%3Btopic_name=%E7%82%AB%E7%A5%9E%E8%B5%9B%E5%90%8E%E6%B8%85%E7%AE%97%2CBLG%E4%B8%8B%E8%B7%AF%E7%BA%AF%E6%B7%B7&amp;topic_id=28353355" target="_blank" class="news-link">炫神赛后清算,BLG下路纯混</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">3</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">知乎</span><span class="rank-num top">1-20</span><span class="time-info">00:31~12:40</span><span class="count-info">74次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.zhihu.com/question/2028168681784434786" target="_blank" class="news-link">乌克兰濒临破产，目前可用资金仅够维持数月，为什么会这样？国家破产将会对乌克兰造成怎样的打击？</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">4</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">1-60</span><span class="time-info">11:10~12:40</span><span class="count-info">10次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417111023457800" target="_blank" class="news-link">【乌克兰总理：在访问华盛顿之后，对美国的支持更有信心了】金十数据4月17日讯，乌克兰总理斯维里登科称与美国高层官员（包括财政部长森特）的会谈进展顺利，并表示她认为美国官员会支持她的国家。斯维里登科称表示，她在与贝森特的会面中强调了乌克兰的立场，即对俄罗斯实施的制裁不应被削弱、取消或推迟。华盛顿曾暂时取消了对俄罗斯石油的部分制裁措施，以帮助应对因伊朗战争而造成的石油供应短缺问题，但这些制裁措施现已重新生效。斯维里登科表示：“我认为贝森特部长支持乌克兰，也代表乌克兰发声。”</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">5</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">8-55</span><span class="time-info">11:20~12:40</span><span class="count-info">9次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417111453693800" target="_blank" class="news-link">【巴西总统批评特朗普动辄以战争威胁他国】金十数据4月17日讯，巴西总统卢拉16日在接受媒体采访时批评美国总统特朗普，反对美国动辄以战争威胁他国。卢拉说，特朗普不能动辄以战争威胁其他国家，任何国家都无权损害他国领土完整。任何国家都必须尊重他国主权。卢拉还说，特朗普政府持续采取的干涉政策可能加剧全球紧张局势。美国对伊朗进行军事打击已导致部分非洲和拉丁美洲国家民众受到影响，不得不承受粮食和生活成本上涨的代价。（新华社）</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">6</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">2-38</span><span class="time-info">11:31~12:40</span><span class="count-info">8次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417112941475800" target="_blank" class="news-link">【因担忧铝业“黑洞”降临，LME金属指数创新高】金十数据4月17日讯，伦敦金属交易所的工业金属价格创下历史新高，这主要是由于中东战争导致铝供应中断，以及近期铜价的回升所推动的。一个追踪六种主要金属的伦敦金属交易所指数在过去四周内上涨了近12%，并在周四收盘时达到了历史最高点。自伊朗战争爆发以来，铝价已上涨约15%，而全球约9%的铝产量来自中东地区。在伦敦金属交易所的指数中，铝的权重最大，而铝与铜这两种金属加起来几乎占了该指数的四分之三。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">7</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十数据</span><span class="rank-num top">3</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417121252808800" target="_blank" class="news-link">由于中东战争导致医疗物资短缺，日本首相高市早苗计划从储备中释放5000万副医用手套。日本医生警告说，如果海湾石油和石脑油的供应中断，可能会在两个月内导致医疗用品严重短缺，甚至可能迫使资金紧张、无力承担飙升价格的医疗机构关闭。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">8</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十数据</span><span class="rank-num high">4</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417121134129800" target="_blank" class="news-link">伊朗战争引发的石油危机导致亚洲各国争相寻找替代品。由于生物燃料的价格首次低于化石燃料，亚洲的燃料供应商正竞相抢购生物燃料。据Argus Media报道，欧洲基准生物柴油价格在3月下旬开始低于传统柴油价格，而亚洲棕榈油期货价格在4月初也跌至低于柴油价格。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">9</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">2-11</span><span class="time-info">12:20~12:40</span><span class="count-info">3次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417121252808800" target="_blank" class="news-link">由于中东战争导致医疗物资短缺，日本首相高市早苗计划从储备中释放5000万副医用手套。日本医生警告说，如果海湾石油和石脑油的供应中断，可能会在两个月内导致医疗用品严重短缺，甚至可能迫使资金紧张、无力承担飙升价格的医疗机构关闭。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">10</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">3-15</span><span class="time-info">12:11~12:40</span><span class="count-info">4次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417120608003800" target="_blank" class="news-link">法国总统马克龙和英国首相斯塔默将于周五主持召开峰会，制定一项国际计划，以确保战争结束后霍尔木兹海峡的安全。但人们对该计划能否奏效持怀疑态度，并且各方还在就谁应该参加会议进行争论。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">11</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">3-12</span><span class="time-info">12:20~12:40</span><span class="count-info">3次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417121134129800" target="_blank" class="news-link">伊朗战争引发的石油危机导致亚洲各国争相寻找替代品。由于生物燃料的价格首次低于化石燃料，亚洲的燃料供应商正竞相抢购生物燃料。据Argus Media报道，欧洲基准生物柴油价格在3月下旬开始低于传统柴油价格，而亚洲棕榈油期货价格在4月初也跌至低于柴油价格。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">12</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">3-9</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417122835796800" target="_blank" class="news-link">【期货热点追踪】中东地缘冲突引发能源溢价，LME金属指数近一个月涨幅逼近12%，创历史新高！点击阅读。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">13</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十数据</span><span class="rank-num ">7</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417120608003800" target="_blank" class="news-link">法国总统马克龙和英国首相斯塔默将于周五主持召开峰会，制定一项国际计划，以确保战争结束后霍尔木兹海峡的安全。但人们对该计划能否奏效持怀疑态度，并且各方还在就谁应该参加会议进行争论。</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="word-group">
+                    <div class="word-header">
+                        <div class="word-info">
+                            <div class="word-name">供给与生产</div>
+                            <div class="word-count hot">12 条</div>
+                        </div>
+                        <div class="word-index">5/11</div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">1</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">百度热搜</span><span class="rank-num top">1-17</span><span class="time-info">07:40~12:40</span><span class="count-info">31次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.baidu.com/s?wd=%E9%97%B4%E8%B0%8D%E7%AD%96%E5%8F%8D%E4%B8%AD%E4%BC%81%E5%91%98%E5%B7%A5%E8%87%B4%E9%A1%B9%E7%9B%AE%E5%81%9C%E5%B7%A5%E5%81%9C%E4%BA%A7" target="_blank" class="news-link">间谍策反中企员工致项目停工停产</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">2</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">今日头条</span><span class="rank-num top">2-9</span><span class="time-info">09:31~12:40</span><span class="count-info">20次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.toutiao.com/trending/7629480321129545771/" target="_blank" class="news-link">间谍策反中企员工致项目停工停产</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">3</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">百度热搜</span><span class="rank-num ">16-30</span><span class="time-info">07:40~12:40</span><span class="count-info">28次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.baidu.com/s?wd=%E5%81%9C%E8%BD%A6%E5%9C%BA%E8%BF%9E%E7%82%B96%E6%AC%A1%E5%90%8C%E6%84%8F%E6%89%8D%E8%83%BD%E7%BC%B4%E8%B4%B9" target="_blank" class="news-link">停车场连点6次同意才能缴费</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">4</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">3-50</span><span class="time-info">11:20~12:40</span><span class="count-info">9次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417111549255800" target="_blank" class="news-link">【聚酯瓶片：成本及供应共同支撑，价格小幅回暖】金十期货4月17日讯，本周聚酯瓶片价格呈上涨趋势，但受周初低价基数影响，周均价环比微跌1.59%至8580元/吨。成本端主导走势：周末美伊谈判未果一度推升油价，随后停火延期及二次和谈预期缓解市场担忧，原油高位回落；但PX及PTA检修集中兑现，供应收紧预期推涨PTA，瓶片成本支撑增强。供应端现货流通紧张局面未改，进一步支撑价格；需求端延续清淡，下游对高价接受度有限，采购以零星小单为主。展望下周，成本支撑仍偏强，PTA存上涨预期；供应端装置逐步重启但整体偏紧格局难改，需求端刚需采购为主，预计价格在8500-9300元/吨区间震荡，周均价或在8680元/吨，环比小幅上涨。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">5</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">6-53</span><span class="time-info">11:20~12:40</span><span class="count-info">9次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417111512185800" target="_blank" class="news-link">【厂家开工意愿回暖 硅铁企业日均产量持续走高】金十期货4月17日讯，硅铁主产区电价区域分化，厂家开工有所增长，产量维持上行趋势。本周Mysteel统计全国136家独立硅铁企业开工率为30.4%，环比上周增加1.51%；日均产量为15975吨，环比上周增长5.65%、增855吨，创近五个月来新高。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">6</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">10-57</span><span class="time-info">11:20~12:40</span><span class="count-info">9次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417111302820800" target="_blank" class="news-link">【宁夏某锰硅大厂复产 锰硅企业日均产量低位反弹】金十期货4月17日讯，本周宁夏某锰硅大厂复产，北方产量有所增加，南方厂家陆续减产，负荷进一步降低。近期锰硅产量低位小幅反弹，Mysteel统计全国187家独立硅锰企业开工率为28.9%，较上周增加1.1%；日均产量为24015吨，增长825吨。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">7</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">2-29</span><span class="time-info">11:41~12:40</span><span class="count-info">7次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417113926648800" target="_blank" class="news-link">【聚乙烯：生产成本抬升，下游传导不畅】金十期货4月17日讯，中东地缘政治紧张导致原料供应短缺，成本支撑显著增强。国内外生产企业的开工负荷下降或停工现象频发，供应端出现结构性缩减。然而，随着生产成本的不断攀升，下游生产企业成本压力增加，采购意愿降低。尽管市场刚性需求仍然存在，但由于价格传导不畅，终端市场难以将成本上涨的压力有效传递给消费者，从而导致整体需求疲软。面对国内市场的疲软需求，国内生产企业和贸易商纷纷转向扩大出口市场。截至4月15日，LLDPE薄膜料离岸价格为1120-1200美元/吨，HDPE薄膜料离岸价格为1300-1400美元/吨，而LDPE薄膜料离岸价格则在1600-1700美元/吨之间。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">8</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">3-26</span><span class="time-info">11:50~12:40</span><span class="count-info">6次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417114342582800" target="_blank" class="news-link">【低盈利遇弱需求，双胶纸市场疲软下滑】金十期货4月17日讯，受近期国际局势影响，部分化工产品价格上涨，双胶纸生产成本较前期增加，部分纸企挺价意愿仍存，但社会面需求持续偏弱，经销商出货压力较大，出版招标个别低价加剧业者偏空心态，双胶纸成交重心下移。截至4月16日，国内70g木浆高白双胶纸市场均价4669元/吨，70g木浆本白双胶纸市场均价4347元/吨，较上月底分别下跌1.06%和1.83%。目前北方市场个别产线存在检修计划，但随着江西地区30万吨新产能放量，后市双胶纸供应端压力仍存，出版招标议价推进下，社会面出货仍存下行压力。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item new">
+                        <div class="news-number">9</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">新浪财经 7x24</span><span class="rank-num top">1</span><span class="time-info">12:40</span>
+                            </div>
+                            <div class="news-title"><a href="https://finance.sina.com.cn/7x24/notification.shtml?id=4821821" target="_blank" class="news-link">【长江存储一季度收入超200亿元，昌红科技、精测电子等上游厂商供货提速】4月15日，记者从产业链人士获悉，因为庞大存储订单芯片涌入，武汉长江存储正以最快速度扩展产能，今年一季度收入已超过200亿元，同比去年翻倍增长。随着国内存储厂扩产，上游设备和耗材厂商的供货节奏将加快。记者了解到，昌红科技、精测电子、鼎龙股份等公司已与国内存储厂开展合作。其中，昌红科技2025年向国内存储厂商小批量供货，2026年客户端的采购份额快速提升超半数，将进入主力供应序列，后续也将快速提升供应量。在该类产品的订单中，国产供应将首次超过进口产品份额。（界面新闻）</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">10</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">2-22</span><span class="time-info">12:01~12:40</span><span class="count-info">5次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417115640309800" target="_blank" class="news-link">【纯碱装置动态追踪】金十期货4月17日讯，1. 内蒙古博源银根化工780万吨/年纯碱装置减量运行，目前轻碱合格品出厂价900元/吨。2. 河南中源化学纯碱装置生产稳定，价格稳定，轻质出厂报价1120元/吨承兑，重碱纯碱暂不接单。3. 湖北双环纯碱装置产量稳定，价格稳定，轻质报价1200元/吨。计划五月检修。4. 唐山三友230万吨/年纯碱装置负荷7成运行。5. 山东海天生物化工150万吨/年纯碱装置减量运行。6. 广东南方碱业60万吨/年纯碱装置6-7成运行。7. 天津碱厂80万吨/年纯碱装置减量运行，目前轻碱出厂价格1350元/吨。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">11</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num high">5-17</span><span class="time-info">12:11~12:40</span><span class="count-info">4次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417120410741800" target="_blank" class="news-link">【泼水节后棕榈油价格飙升，泰国贸易局加强价格监管】金十期货4月17日讯，据外媒报道，泰国国内贸易局（DIT）正在加强对泼水节后棕榈油收购的监管，命令立即对收购场和榨油厂进行检查，以防止不公平定价行为。由于节假日期间部分加工设施暂时停产导致供应减少，棕榈油价格持续上涨。与此同时，在B7和B20生物柴油政策的推动下，能源行业对毛棕榈油的消费大幅增加，使得需求保持强劲。最新数据显示，油棕果价格已涨至每公斤7至7.9泰铢，平均价格为7.45泰铢，较去年同期上涨约25%。毛棕榈油价格在每公斤40.50至41泰铢之间，均价为40.75泰铢，同比上涨约15%。棕榈种植区的各省贸易办公室已接到指示，要求检查经营情况，并确保收购价格清晰公示、公平应用。对于被发现压低价格的经营者，当局可能采取法律行动。此外，有关部门将继续通过预先审批制度管理毛棕榈油出口，以维持国内供应，并计划于近期与行业代表进行讨论，以持续监测市场状况。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">12</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">新浪财经 7x24</span><span class="rank-num ">7-14</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://finance.sina.com.cn/7x24/notification.shtml?id=4821808" target="_blank" class="news-link">【中汽工程、中进汽贸分别与亿纬锂能签署工程项目合作协议、电池流通链项目合作协议】4月16日，国机汽车与惠州亿纬锂能股份有限公司（简称“亿纬锂能”）在天津签订战略合作框架协议。中汽工程作为国机汽车下属企业，与中进汽贸一同，分别与亿纬锂能签署工程项目合作协议、电池流通链项目合作协议。其中，中汽工程与亿纬锂能签署了海外储能电池工厂项目合作协议，将为其全球化产能布局提供全流程工程技术支撑。</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="word-group">
+                    <div class="word-header">
+                        <div class="word-info">
+                            <div class="word-name">市场情绪</div>
+                            <div class="word-count warm">8 条</div>
+                        </div>
+                        <div class="word-index">6/11</div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">1</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">华尔街见闻</span><span class="rank-num ">6-10</span><span class="time-info">00:02~12:40</span><span class="count-info">76次</span>
+                            </div>
+                            <div class="news-title"><a href="https://wallstreetcn.com/articles/3770123" target="_blank" class="news-link">“反手做空，趁现在还来得及”！高盛交易员警告美股涨过头，抛出6笔对冲交易</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">2</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">华尔街见闻</span><span class="rank-num ">8-10</span><span class="time-info">07:20~12:40</span><span class="count-info">32次</span>
+                            </div>
+                            <div class="news-title"><a href="https://wallstreetcn.com/articles/3770116" target="_blank" class="news-link">台积电Q1净利润同比增58%，毛利率历史性突破66%，资本支出111亿美元 | 财报见闻</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">3</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">知乎</span><span class="rank-num ">7-17</span><span class="time-info">10:10~12:40</span><span class="count-info">16次</span>
+                            </div>
+                            <div class="news-title"><a href="https://www.zhihu.com/question/2028254908688680240" target="_blank" class="news-link">贵州茅台 2025 年净利润同比降 4.53%，Q4 业绩远低于预期，为何业绩会突然大变，白酒行业怎么了？</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">4</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">华尔街见闻</span><span class="rank-num ">10</span><span class="time-info">10:20~12:40</span><span class="count-info">14次</span>
+                            </div>
+                            <div class="news-title"><a href="https://wallstreetcn.com/articles/3770147" target="_blank" class="news-link">这轮美股新高，散户集体踏空！大多头Tom Lee：下一波上涨将由他们主导</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">5</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">贴吧</span><span class="rank-num high">5-7</span><span class="time-info">11:41~12:40</span><span class="count-info">7次</span>
+                            </div>
+                            <div class="news-title"><a href="https://tieba.baidu.com/hottopic/browse/hottopic?amp%3Btopic_name=%E9%92%93%E5%8F%8B%E7%AB%8B%E5%A4%A7%E5%8A%9F%2C%E8%AF%86%E7%A0%B4%E9%97%B4%E8%B0%8D%E8%BF%9D%E8%A7%84%E6%8D%95%E8%9D%B6&amp;topic_id=28353377" target="_blank" class="news-link">钓友立大功,识破间谍违规捕蝶</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">6</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">2-14</span><span class="time-info">12:11~12:40</span><span class="count-info">4次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417120705415800" target="_blank" class="news-link">农业团体警告称，如果没有支持，英国的粮食产量将会下降。在全球供应链动荡之际，英国将更加依赖进口。这可能会引发新一轮的食品价格上涨。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">7</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">新浪财经 7x24</span><span class="rank-num high">5-11</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://finance.sina.com.cn/7x24/notification.shtml?id=4821811" target="_blank" class="news-link">【花旗：贵州茅台在2025年重整业务 维持买入评级】花旗分析师在一份研究报告中表示，贵州茅台去年重整了其运营模式。茅台2025年销售额和利润首次出现双降，远低于市场预期。茅台将其旗舰产品飞天茅台的出厂批发价追溯上调人民币100元，直接零售价上调人民币40元，自3月31日起生效。花旗分析师指出，这一差价意味著每瓶人民币60元的利润将从经销商转移到这家酒企。他们表示，与此同时，茅台约79%的现金分红比例和积极的股份回购，在其整个重整期内依然是股东现金回报的支柱。花旗维持对贵州茅台股票的买入评级，并将目标价维持在人民币2,210.00元。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">8</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十数据</span><span class="rank-num ">6</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417120705415800" target="_blank" class="news-link">农业团体警告称，如果没有支持，英国的粮食产量将会下降。在全球供应链动荡之际，英国将更加依赖进口。这可能会引发新一轮的食品价格上涨。</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="word-group">
+                    <div class="word-header">
+                        <div class="word-info">
+                            <div class="word-name">价格波动</div>
+                            <div class="word-count warm">7 条</div>
+                        </div>
+                        <div class="word-index">7/11</div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">1</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">1-37</span><span class="time-info">11:31~12:40</span><span class="count-info">8次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417113031024800" target="_blank" class="news-link">早盘收盘，国内期货主力合约涨跌不一。集运欧线涨超4%，不锈钢（SS）、沪镍涨超2%，碳酸锂、尿素、甲醇、玻璃、鸡蛋涨超1%；跌幅方面，铂跌超2%，钯、丁二烯橡胶、20号胶、液化石油气（LPG）跌超1%。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">2</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num high">5-41</span><span class="time-info">11:31~12:40</span><span class="count-info">8次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417112751684800" target="_blank" class="news-link">【蒙古国ETT公司3.2万吨炼焦煤全部成交，成交价格97.8美元/吨】金十期货4月17日讯，4月17日蒙古国ETT公司炼焦煤进行线上竞拍，1/3焦原煤A14-19，V28-37，S1.0，G65，Mt5起拍价83.3美元/吨，挂牌数量3.2万吨全部成交，成交价格97.8美元/吨，较上期15日上涨0.5美元/吨，以上价格均不含税。供货地点为甘其毛都口岸海关监管区，供货时间为付款后60天内，最后供应日期为2026年6月16日。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">3</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">10-46</span><span class="time-info">11:31~12:40</span><span class="count-info">8次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417112401488800" target="_blank" class="news-link">【4月17日杭州螺纹库存147.7万吨，昨天出库3.3万吨】金十期货4月17日讯，中天螺纹价格3170元/吨，根据市场统计口径，昨天出库3.30万吨，较上周同期减少0.30万吨，杭州螺纹库存147.7万吨，较上周同期减少3.7万吨。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">4</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">11-47</span><span class="time-info">11:31~12:40</span><span class="count-info">8次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417112216937800" target="_blank" class="news-link">【4月17日华东市场聚酯瓶片价格上涨】金十期货4月17日讯，华东市场聚酯瓶片收于8700，涨跌值100，现货供应紧张，聚酯瓶片市场重心上扬。4月货源报盘8600-8800，部分略低8300-8450，下游及贸易商买气弱，未闻实单递盘。（单位：元/吨）</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">5</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num high">5-32</span><span class="time-info">11:41~12:40</span><span class="count-info">7次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417113402989800" target="_blank" class="news-link">【4月17日富宝废铜价格指数90800元/吨，较昨日跌400元/吨】金十期货4月17日讯，富宝数据：2026年4月17日，富宝废铜价格指数90800元/吨，较昨日跌400元/吨；富宝现货铜（1#）价格101975元/吨，较昨日跌355元/吨，直接精废价差11175元/吨，较昨日涨45元/吨，较前5日均值（10600）涨575元/吨，较近三月均值（10900）涨275元/吨。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">6</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">2-25</span><span class="time-info">11:50~12:40</span><span class="count-info">6次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417114714547800" target="_blank" class="news-link">【金十期货图示】4月17日早盘期市收盘总结：航运、黑色金属和有色金属链条相对占优，贵金属、化工和能源链条回吐更明显。点击查看。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">7</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">8-35</span><span class="time-info">11:41~12:40</span><span class="count-info">7次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417113119688800" target="_blank" class="news-link">【股指期货早盘收盘】金十期货4月17日讯，沪深300股指期货（IF）主力合约跌0.49%，上证50股指期货（IH）主力合约跌1.01%，中证500股指期货（IC）主力合约跌0.19%，中证1000股指期货（IM）主力合约涨0.33%。</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="word-group">
+                    <div class="word-header">
+                        <div class="word-info">
+                            <div class="word-name">需求与消费</div>
+                            <div class="word-count warm">6 条</div>
+                        </div>
+                        <div class="word-index">8/11</div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">1</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num high">4-51</span><span class="time-info">11:20~12:40</span><span class="count-info">9次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417111544216800" target="_blank" class="news-link">【国家发改委：今年将重点在“人工智能+”基础设施等领域，开展一系列扩大有效投资行动】金十数据4月17日讯，国新办4月17日上午举行“开局起步‘十五五’”系列主题新闻发布会，国家发展改革委副主任王昌林表示，今年将重点在“人工智能+”基础设施、城市更新、国家水网、新型能源体系等领域，开展一系列扩大有效投资行动，促进供给结构优化、市场需求扩容。体制机制创新上，我们将在中央投资项目中全面开展“软建设”工作，促进形成项目建设实施和运营维护的长效机制。同时，还将发挥国家创业投资引导基金作用，引导带动社会资本支持科技创新和新兴产业发展。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">2</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">6-42</span><span class="time-info">11:31~12:40</span><span class="count-info">8次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417112610105800" target="_blank" class="news-link">【广州：推动建筑机器人、自动化施工机械创新应用】金十数据4月17日讯，广州市新型建筑工业化联席会议办公室印发《广州市推进新型城市基础设施建设打造韧性城市行动方案》。其中提出，探索在房地产、城市更新、保障房及老旧小区改造项目建设数字家庭应用场景；在建筑产业领域，培育智能建造产业集群，推动建筑机器人、自动化施工机械创新应用，推动建筑工程项目全生命周期管理，发展模块化建筑并拓展在城市更新、学校、医院等领域的应用，助力建筑业转型升级。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">3</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">1-13</span><span class="time-info">12:11~12:40</span><span class="count-info">4次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417120849239800" target="_blank" class="news-link">【小麦：今日小麦市场价格稳中偏弱】金十期货4月17日讯，今日小麦市场价格稳中偏弱。当前面粉消费疲软，粉企采购谨慎，按需采购为主。随着玉米价格回落，小麦饲用替代优势有所减弱。市场流通散粮货源持续消耗，政策性小麦持续投放市场，有效补充供给，对价格大幅上涨形成抑制，整体呈现供需双弱、窄幅震荡格局。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">4</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">1-10</span><span class="time-info">12:20~12:40</span><span class="count-info">3次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417121740319800" target="_blank" class="news-link">【玉米：17日全国均价总体微幅回升走势】金十期货4月17日讯，17日全国均价总体微幅回升走势，局部地区小幅震荡，波动地区减少总体跌多涨少。国内主产区潮粮上量进入尾声，企业采购重心开始转移到干粮，在收购高成本的支撑下，贸易商低价出货积极性不高，玉米流通逐步减量，下游需求疲软且整体盈利不佳，用粮企业采购谨慎，压制着玉米涨价空间。多因素冲抵叠加，预判4月份上半月期间大多数时候产区玉米现货交易价格总体稳中略显偏弱走势为主的可能性更大下半月跌势逐步放缓止跌转涨几率逐步提高，4月份月度均价环比继续上涨的几率依旧偏高。关注新季麦上市后开秤价水平。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item new">
+                        <div class="news-number">5</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">1</span><span class="time-info">12:40</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417123850904800" target="_blank" class="news-link">【金十期货整理 | 今日部分钢厂废钢行情一览（4月17日）】1. 赤峰建支管业废钢采购价格部分上调20。2. 珠海鑫德盛最新价涨10。3. 鞍山宝得废钢采购价格上调30。4. 唐山港陆废钢价格跌10。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">6</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num high">4-16</span><span class="time-info">12:11~12:40</span><span class="count-info">4次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417120532161800" target="_blank" class="news-link">【DDGS：17日DDGS价格相对平稳】金十期货4月17日讯，17日DDGS价格相对平稳。近期原料价格走势偏软，豆粕现货价格走低，下游企业对DDGS采购意愿谨慎，按需随用随采，个别酒精企业成交情况转好，支撑企业挺价心态。多方因素冲抵叠加，预判4月份上中旬期间大多数时候产区DDGS交易价格总体稳中略偏弱走势为主的可能性更大下旬由弱转强的几率将逐步提高，月度均价环比止涨下跌的几率在逐步提高。</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="word-group">
+                    <div class="word-header">
+                        <div class="word-info">
+                            <div class="word-name">库存与物流</div>
+                            <div class="word-count warm">5 条</div>
+                        </div>
+                        <div class="word-index">9/11</div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">1</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">2-61</span><span class="time-info">11:10~12:40</span><span class="count-info">10次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417110904971800" target="_blank" class="news-link">【CGC：截至4月12日当周，加拿大油菜籽出口量较前周增加0.2%】金十期货4月17日讯，加拿大谷物委员会发布的数据显示，截至4月12日当周，加拿大油菜籽出口量较前周增加0.2%至28.41万吨，之前一周为28.35万吨。自2025年8月1日至2026年4月12日，加拿大油菜籽出口量为587.35万吨，较上一年度同期的738.17万吨减少20.4%。截至4月12日，加拿大油菜籽商业库存为127.08万吨。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">2</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">9-56</span><span class="time-info">11:20~12:40</span><span class="count-info">9次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417111332001800" target="_blank" class="news-link">一艘在沙特延布港装载原油的韩国船只已安全驶离红海。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">3</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">11-58</span><span class="time-info">11:20~12:40</span><span class="count-info">9次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417111150572800" target="_blank" class="news-link">美国国务卿鲁比奥与英国外交大臣通话，讨论有关与伊朗停火的下一步措施。双方讨论了恢复霍尔木兹海峡航行自由的迫切需要，以便商船能够自由通过海峡，能源供应能够进入全球市场。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">4</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num top">3-23</span><span class="time-info">12:01~12:40</span><span class="count-info">5次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417115355146800" target="_blank" class="news-link">【韩国一油轮安全驶离红海】金十数据4月17日讯，韩国海洋水产部表示，一艘从沙特延布港装载原油的韩国船只于周五安全驶离红海，这是霍尔木兹海峡遭封锁后，首次有原油通过替代航线运输。韩国一直在积极寻求将红海作为霍尔木兹海峡替代航线的利用方案。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">5</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十数据</span><span class="rank-num ">15</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417115355146800" target="_blank" class="news-link">韩国一油轮安全驶离红海</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="word-group">
+                    <div class="word-header">
+                        <div class="word-info">
+                            <div class="word-name">国际组织与报告</div>
+                            <div class="word-count ">2 条</div>
+                        </div>
+                        <div class="word-index">10/11</div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">1</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num high">5-64</span><span class="time-info">11:10~12:40</span><span class="count-info">10次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417110834883800" target="_blank" class="news-link">乌克兰总理斯维里登科：与IMF总裁格奥尔基耶娃进行了良好讨论；预计国际货币基金组织工作人员将于5月前往基辅。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">2</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">澎湃新闻</span><span class="rank-num ">18</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://m.thepaper.cn/newsDetail_forward_32986186" target="_blank" class="news-link">“北京宠物犬中毒案”民事部分二审维持原判，“papi”主人：后续将关注案件执行</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="word-group">
+                    <div class="word-header">
+                        <div class="word-info">
+                            <div class="word-name">行业政策</div>
+                            <div class="word-count ">2 条</div>
+                        </div>
+                        <div class="word-index">11/11</div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">1</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">金十期货</span><span class="rank-num ">8-44</span><span class="time-info">11:31~12:40</span><span class="count-info">8次</span>
+                            </div>
+                            <div class="news-title"><a href="https://flash.jin10.com/detail/20260417112408748800" target="_blank" class="news-link">【发改委和交通运输部正在牵头编制《现代综合交通运输体系发展“十五五”规划》】金十数据4月17日讯，国新办4月17日举行“开局起步‘十五五’”系列主题新闻发布会，介绍“十五五”时期推动经济社会高质量发展有关情况。国家发展改革委发展战略和规划司司长陈雷表示，“十五五”时期，完善现代化综合交通运输体系将推进补网强链提质。推进跨区域跨流域大通道建设，高质量建设沿海沿边沿江、出疆入藏、西部陆海新通道等战略骨干通道，完善跨江跨海跨湾通道布局，建设国际性、全国性综合交通枢纽城市，提高网络覆盖广度、通达深度和国际联通水平。当前，国家发展改革委和交通运输部正在牵头编制《现代综合交通运输体系发展“十五五”规划》，系统谋划“十五五”时期相关目标任务和工程项目。</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="news-item ">
+                        <div class="news-number">2</div>
+                        <div class="news-content">
+                            <div class="news-header"><span class="source-name">澎湃新闻</span><span class="rank-num ">17</span><span class="time-info">12:31~12:40</span><span class="count-info">2次</span>
+                            </div>
+                            <div class="news-title"><a href="https://m.thepaper.cn/newsDetail_forward_32852201" target="_blank" class="news-link">劣质硬盘在京东持续销售，客服称无法判定真假愿意“退一赔一”</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                </div>
+                <div class="section-divider rss-section">
+                    <div class="rss-section-header">
+                        <div class="rss-section-title">RSS 订阅更新</div>
+                        <div class="rss-section-count">7 条</div>
+                    </div>
+                    <div class="feed-group">
+                        <div class="feed-header">
+                            <div class="feed-name">特定品种板块</div>
+                            <div class="feed-count">6 条</div>
+                        </div>
+                        <div class="rss-item">
+                            <div class="rss-meta"><span class="rss-time">04-17 08:37</span><span class="rss-author">Hacker News</span>
+                            </div>
+                            <div class="rss-title"><a href="https://lucasgerads.com/blog/lecroy-mcp-spice-demo/" target="_blank" class="rss-link">Show HN: Spice simulation → oscilloscope → verification with Claude Code</a>
+                            </div>
+                        </div>
+                        <div class="rss-item">
+                            <div class="rss-meta"><span class="rss-time">04-17 05:56</span><span class="rss-author">Hacker News</span>
+                            </div>
+                            <div class="rss-title"><a href="https://github.com/gainsec/autoprober" target="_blank" class="rss-link">Guy builds AI driven hardware hacker arm from duct tape, old cam and CNC machine</a>
+                            </div>
+                        </div>
+                        <div class="rss-item">
+                            <div class="rss-meta"><span class="rss-time">04-17 05:14</span><span class="rss-author">Hacker News</span>
+                            </div>
+                            <div class="rss-title"><a href="https://ropensci.org/blog/2026/04/02/tree-sitter-overview/" target="_blank" class="rss-link">A Better R Programming Experience Thanks to Tree-sitter</a>
+                            </div>
+                        </div>
+                        <div class="rss-item">
+                            <div class="rss-meta"><span class="rss-time">04-17 02:39</span><span class="rss-author">Hacker News</span>
+                            </div>
+                            <div class="rss-title"><a href="https://android-developers.googleblog.com/2026/04/build-android-apps-3x-faster-using-any-agent.html" target="_blank" class="rss-link">Android CLI: Build Android apps 3x faster using any agent</a>
+                            </div>
+                        </div>
+                        <div class="rss-item">
+                            <div class="rss-meta"><span class="rss-time">04-17 01:37</span><span class="rss-author">Hacker News</span>
+                            </div>
+                            <div class="rss-title"><a href="https://simonwillison.net/2026/Apr/16/qwen-beats-opus/" target="_blank" class="rss-link">Qwen3.6-35B-A3B on my laptop drew me a better pelican than Claude Opus 4.7</a>
+                            </div>
+                        </div>
+                        <div class="rss-item">
+                            <div class="rss-meta"><span class="rss-time">04-16 21:36</span><span class="rss-author">Hacker News</span>
+                            </div>
+                            <div class="rss-title"><a href="https://qwen.ai/blog?id=qwen3.6-35b-a3b" target="_blank" class="rss-link">Qwen3.6-35B-A3B: Agentic coding power, now open to all</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="feed-group">
+                        <div class="feed-header">
+                            <div class="feed-name">国际组织与报告</div>
+                            <div class="feed-count">1 条</div>
+                        </div>
+                        <div class="rss-item">
+                            <div class="rss-meta"><span class="rss-time">04-16 23:19</span><span class="rss-author">Hacker News</span>
+                            </div>
+                            <div class="rss-title"><a href="https://www.zatanna.ai/kampala" target="_blank" class="rss-link">Launch HN: Kampala (YC W26) – Reverse-Engineer Apps into APIs</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="section-divider standalone-section">
+                    <div class="standalone-section-header">
+                        <div class="standalone-section-title">独立展示区</div>
+                        <div class="standalone-section-count">30 条</div>
+                    </div>
+                    <div class="standalone-group">
+                        <div class="standalone-header">
+                            <div class="standalone-name">知乎</div>
+                            <div class="standalone-count">20 条</div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">1</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num top">1-20</span><span class="time-info">00:31~12:40</span><span class="count-info">74次</span>
+                                </div>
+                                <div class="news-title"><a href="https://www.zhihu.com/question/2028168681784434786" target="_blank" class="news-link">乌克兰濒临破产，目前可用资金仅够维持数月，为什么会这样？国家破产将会对乌克兰造成怎样的打击？</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">2</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num top">1-11</span><span class="time-info">08:01~12:40</span><span class="count-info">29次</span>
+                                </div>
+                                <div class="news-title"><a href="https://www.zhihu.com/question/2028141749118189870" target="_blank" class="news-link">广州官宣小升初实行「随机分班」，分班将由教育部门统一组织，如何看待这一操作？会影响到教学质量吗？</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">3</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num top">3-13</span><span class="time-info">08:31~12:40</span><span class="count-info">26次</span>
+                                </div>
+                                <div class="news-title"><a href="https://www.zhihu.com/question/2026430230860973929" target="_blank" class="news-link">厨房里有 10 升氢氟酸泄露了，水泥地板，在墙角，已经过去 2 天，如何处理？</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">4</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num top">2-4</span><span class="time-info">09:01~12:40</span><span class="count-info">23次</span>
+                                </div>
+                                <div class="news-title"><a href="https://www.zhihu.com/question/626166739" target="_blank" class="news-link">你见过的最一针见血的程序员笑话是什么？</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">5</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num high">5-8</span><span class="time-info">10:50~12:40</span><span class="count-info">12次</span>
+                                </div>
+                                <div class="news-title"><a href="https://www.zhihu.com/question/2028263340380562542" target="_blank" class="news-link">如何评价《一人之下》漫画第 759（810）话？</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">6</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num high">5-19</span><span class="time-info">11:10~12:40</span><span class="count-info">10次</span>
+                                </div>
+                                <div class="news-title"><a href="https://www.zhihu.com/question/2010398698144753209" target="_blank" class="news-link">爱抖腿除了会烦到身边的人，是不是可能反而其实对健康有很多好处？</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">7</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num high">5-7</span><span class="time-info">08:01~12:40</span><span class="count-info">29次</span>
+                                </div>
+                                <div class="news-title"><a href="https://www.zhihu.com/question/2028238414336585868" target="_blank" class="news-link">美以袭击伊朗进入第 49 天，当前局势如何？还有哪些信息值得关注？</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">8</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num high">7-17</span><span class="time-info">10:10~12:40</span><span class="count-info">16次</span>
+                                </div>
+                                <div class="news-title"><a href="https://www.zhihu.com/question/2028254908688680240" target="_blank" class="news-link">贵州茅台 2025 年净利润同比降 4.53%，Q4 业绩远低于预期，为何业绩会突然大变，白酒行业怎么了？</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">9</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num high">8-9</span><span class="time-info">11:31~12:40</span><span class="count-info">8次</span>
+                                </div>
+                                <div class="news-title"><a href="https://www.zhihu.com/question/2028050642581676414" target="_blank" class="news-link">电影《四渡》定档 6 月 26 日上映并发预告，重现长征中的四渡赤水之战，对此你有何期待？</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">10</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num high">10-20</span><span class="time-info">09:20~12:40</span><span class="count-info">21次</span>
+                                </div>
+                                <div class="news-title"><a href="https://www.zhihu.com/question/2013899380286047376" target="_blank" class="news-link">用 AI 写的代码，最终会不会让整个项目成为屎山？</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">11</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num high">6-12</span><span class="time-info">00:02~12:40</span><span class="count-info">77次</span>
+                                </div>
+                                <div class="news-title"><a href="https://www.zhihu.com/question/2028214096009412938" target="_blank" class="news-link">美方对伊朗启动代号为「经济狂怒」的行动，其具体措施与以往制裁会有何差异？可能对双方谈判有怎样的影响？</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">12</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num ">12-17</span><span class="time-info">10:20~12:40</span><span class="count-info">15次</span>
+                                </div>
+                                <div class="news-title"><a href="https://www.zhihu.com/question/2027419253578507525" target="_blank" class="news-link">段永平称泡泡玛特壁垒远比想象中强大，只要潮玩有持续性就是非常好的生意，此前他称看不懂，如何解读？</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">13</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num ">13-16</span><span class="time-info">11:50~12:40</span><span class="count-info">6次</span>
+                                </div>
+                                <div class="news-title"><a href="https://www.zhihu.com/question/2025321777044240248" target="_blank" class="news-link">小鹏汽车的销量一直不温不火，小鹏 GX 能否成为销量增长的关键车型？</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">14</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num high">5-20</span><span class="time-info">06:01~12:40</span><span class="count-info">41次</span>
+                                </div>
+                                <div class="news-title"><a href="https://www.zhihu.com/question/1993099650463458006" target="_blank" class="news-link">《凡人修仙传》灵界篇、仙界篇原著水平下滑，会影响后续动画的制作吗？动画该不该在人界篇完结后重写剧本？</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">15</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num ">14-18</span><span class="time-info">11:01~12:40</span><span class="count-info">11次</span>
+                                </div>
+                                <div class="news-title"><a href="https://www.zhihu.com/question/2003131090517370204" target="_blank" class="news-link">为何「北伐」难如登天，「南下」却势如破竹？</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">16</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num ">15-18</span><span class="time-info">12:20~12:40</span><span class="count-info">3次</span>
+                                </div>
+                                <div class="news-title"><a href="https://www.zhihu.com/question/2027688092937593761" target="_blank" class="news-link">我国自主研发「无人飞行卡车」HH-200 首飞成功，有哪些突破和优势？发展大型无人运输装备有何意义？</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">17</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num ">16-20</span><span class="time-info">10:31~12:40</span><span class="count-info">13次</span>
+                                </div>
+                                <div class="news-title"><a href="https://www.zhihu.com/question/2025259986431787811" target="_blank" class="news-link">培训机构称用 AI 赋能学习，家长花两万四后投诉说小孩没进步还染上网瘾，是咋回事？这种智能教育靠谱吗？</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">18</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num high">5-19</span><span class="time-info">00:02~12:40</span><span class="count-info">77次</span>
+                                </div>
+                                <div class="news-title"><a href="https://www.zhihu.com/question/2027075064454017953" target="_blank" class="news-link">3 岁男童体重仅 21 斤，每晚睡前喝牛奶、吃饼干补营养却被诊断营养不良，为啥会这样？该怎么科学喂养？</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">19</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num high">7-19</span><span class="time-info">09:50~12:40</span><span class="count-info">18次</span>
+                                </div>
+                                <div class="news-title"><a href="https://www.zhihu.com/question/41434084" target="_blank" class="news-link">如果可以基因改良，你眼中的完美人类是什么样的？</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">20</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num ">20</span><span class="time-info">12:20~12:40</span><span class="count-info">3次</span>
+                                </div>
+                                <div class="news-title"><a href="https://www.zhihu.com/question/2028049419249939698" target="_blank" class="news-link">多地调整中考计分方式，降低考试难度，这是否更有利于培养学生的创新精神和实践能力？会造成初高中脱节吗？</a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="standalone-group">
+                        <div class="standalone-header">
+                            <div class="standalone-name">华尔街见闻</div>
+                            <div class="standalone-count">10 条</div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">1</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num top">1-4</span><span class="time-info">00:02~12:40</span><span class="count-info">76次</span>
+                                </div>
+                                <div class="news-title"><a href="https://wallstreetcn.com/articles/3770109" target="_blank" class="news-link">中东紧张局势持续，美股勉强新高，纳指十二连涨，中概股指跑赢大盘，原油两连涨</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">2</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num top">2-5</span><span class="time-info">00:02~12:40</span><span class="count-info">76次</span>
+                                </div>
+                                <div class="news-title"><a href="https://wallstreetcn.com/articles/3770156" target="_blank" class="news-link">美对伊启动“经济狂怒”行动、施压达成协议，伊朗斥为经济恐怖主义，称敌人误判战局</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">3</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num top">2-9</span><span class="time-info">08:20~12:40</span><span class="count-info">26次</span>
+                                </div>
+                                <div class="news-title"><a href="https://wallstreetcn.com/articles/3770196" target="_blank" class="news-link">华尔街见闻早餐FM-Radio | 2026年4月17日</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">4</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num top">3-9</span><span class="time-info">00:02~12:40</span><span class="count-info">76次</span>
+                                </div>
+                                <div class="news-title"><a href="https://wallstreetcn.com/articles/3770148" target="_blank" class="news-link">单季利润超2024年全年！中际旭创Q1净利57亿元，同比大增262% | 财报见闻</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">5</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num high">4-10</span><span class="time-info">08:50~12:40</span><span class="count-info">23次</span>
+                                </div>
+                                <div class="news-title"><a href="https://wallstreetcn.com/articles/3770182" target="_blank" class="news-link">特朗普：美伊下次会谈可能本周末举行，不排除必要时延长停火，伊朗同意不拥有核武</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">6</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num high">5-9</span><span class="time-info">00:20~12:40</span><span class="count-info">74次</span>
+                                </div>
+                                <div class="news-title"><a href="https://wallstreetcn.com/articles/3770137" target="_blank" class="news-link">特朗普急了！美伊4月BigDeal可以期待？市场紧盯这两天</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">7</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num high">6-10</span><span class="time-info">00:02~12:40</span><span class="count-info">76次</span>
+                                </div>
+                                <div class="news-title"><a href="https://wallstreetcn.com/articles/3770123" target="_blank" class="news-link">“反手做空，趁现在还来得及”！高盛交易员警告美股涨过头，抛出6笔对冲交易</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">8</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num high">8-10</span><span class="time-info">07:20~12:40</span><span class="count-info">32次</span>
+                                </div>
+                                <div class="news-title"><a href="https://wallstreetcn.com/articles/3770116" target="_blank" class="news-link">台积电Q1净利润同比增58%，毛利率历史性突破66%，资本支出111亿美元 | 财报见闻</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">9</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num high">9</span><span class="time-info">10:20~12:40</span><span class="count-info">14次</span>
+                                </div>
+                                <div class="news-title"><a href="https://wallstreetcn.com/articles/3770155" target="_blank" class="news-link">态度大反转！贝森特连续两天表态，支持美联储“按兵不动”，战争阴云下降息预期降温</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="news-item">
+                            <div class="news-number">10</div>
+                            <div class="news-content">
+                                <div class="news-header"><span class="rank-num high">10</span><span class="time-info">10:20~12:40</span><span class="count-info">14次</span>
+                                </div>
+                                <div class="news-title"><a href="https://wallstreetcn.com/articles/3770147" target="_blank" class="news-link">这轮美股新高，散户集体踏空！大多头Tom Lee：下一波上涨将由他们主导</a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="section-divider ai-section">
+                    <div class="ai-section-header">
+                        <div class="ai-section-title">✨ AI 热点分析</div>
+                        <span class="ai-section-badge">AI</span>
+                    </div>
+                    <div class="ai-block">
+                        <div class="ai-block-title">核心热点态势</div>
+                        <div class="ai-block-content">全网霸屏：地缘政治危机主导全球经济叙事。<br><br>【宏观主线】<br>美国对伊朗启动&quot;经济狂怒&quot;行动与中东停火谈判交织，引发全球风险偏好剧烈波动，避险资产与通胀交易成为市场核心逻辑。<br><br>【微观领域】<br>1. 能源与金属链条受战争溢价影响，铝价创新高，欧洲航空燃油库存告急。<br><br>2. 中美科技博弈持续，黄仁勋言论与华为/长江存储产业链成国内关注焦点。<br><br>3. 中国一季度 GDP 表现稳健，但民间投资信心仍需政策提振。</div>
+                    </div>
+                    <div class="ai-block">
+                        <div class="ai-block-title">舆论风向争议</div>
+                        <div class="ai-block-content">【情绪光谱】<br>资本市场呈现明显分化：华尔街见顶论调高涨（高盛提示做多转空），而美股散户仍盲目追涨。<br><br>【核心矛盾】<br>利益之争大于认知之争，伊朗制裁被定义为&quot;经济恐怖主义&quot;，实质是美伊双方对区域定价权的争夺；国内舆论关注点从单纯的经济增长转向供应链安全与人身安全（赴日签证、中企间谍案）。</div>
+                    </div>
+                    <div class="ai-block">
+                        <div class="ai-block-title">异动与弱信号</div>
+                        <div class="ai-block-content">【跨平台共振】<br>印度暂停金银进口消息虽晚发但迅速登顶财经榜单，显示市场对贵金属供应链中断的敏感性急剧上升，需警惕卢比汇率进一步贬值传导至亚洲货币体系。<br><br>【轨迹突变】<br>伊朗冲突话题在凤凰网及华尔街闻保持长达 12 小时高位横盘（排名 1-4），未出现自然衰退迹象，暗示局势已进入僵持消耗阶段，而非短期突发热点。<br><br>【弱信号捕捉】<br>挖掘机产量创三年新高反向印证基建需求韧性，与部分出口受阻形成对冲，是经济基本面的重要支撑点。</div>
+                    </div>
+                    <div class="ai-block">
+                        <div class="ai-block-title">研判策略建议</div>
+                        <div class="ai-block-content">1. 投资者：短期回避中东关联度高的航运与石油板块，增配黄金防御；警惕印度贵金属进口停滞引发的区域性金融波动。<br><br>2. 品牌方：建立供应链多元备份，针对涉伊业务进行法律风险评估，避免卷入二级制裁名单；加强海外人员安全预案。<br><br>3. 公众：关注官方关于赴日签证及安全提醒，减少非必要高危地区出行；理性看待股市高估风险，避免盲目杠杆。</div>
+                    </div>
+                    <div class="ai-block">
+                        <div class="ai-block-title">独立源点速览</div>
+                        <div class="ai-block-content">[知乎]:<br>教育政策与民生议题热度攀升，广州小升初随机分班登上榜首并稳定高位，反映公众对教育公平的焦虑远高于国际时政；乌克兰破产问题深度讨论占据第一位置，展现用户对社会结构崩溃的思辨兴趣。<br><br><br>[华尔街见闻]:<br>科技巨头财报与地缘风险交织，台积电 Q1 业绩超预期与 NVIDIA 高管言论形成共振；美元降息预期因战争阴云降温，资金面紧张信号频现，市场对流动性收紧的敏感度显著提升。<br></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="footer">
+                <div class="footer-content">
+                    由 <span class="project-name">TrendRadar</span> 生成 ·
+                    <a href="https://github.com/sansan0/TrendRadar" target="_blank" class="footer-link">
+                        GitHub 开源项目
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            async function saveAsImage() {
+                const button = event.target;
+                const originalText = button.textContent;
+
+                try {
+                    button.textContent = '生成中...';
+                    button.disabled = true;
+                    window.scrollTo(0, 0);
+
+                    // 等待页面稳定
+                    await new Promise(resolve => setTimeout(resolve, 200));
+
+                    // 截图前隐藏按钮
+                    const buttons = document.querySelector('.save-buttons');
+                    buttons.style.visibility = 'hidden';
+
+                    // 再次等待确保按钮完全隐藏
+                    await new Promise(resolve => setTimeout(resolve, 100));
+
+                    const container = document.querySelector('.container');
+
+                    const canvas = await html2canvas(container, {
+                        backgroundColor: '#ffffff',
+                        scale: 1.5,
+                        useCORS: true,
+                        allowTaint: false,
+                        imageTimeout: 10000,
+                        removeContainer: false,
+                        foreignObjectRendering: false,
+                        logging: false,
+                        width: container.offsetWidth,
+                        height: container.offsetHeight,
+                        x: 0,
+                        y: 0,
+                        scrollX: 0,
+                        scrollY: 0,
+                        windowWidth: window.innerWidth,
+                        windowHeight: window.innerHeight
+                    });
+
+                    buttons.style.visibility = 'visible';
+
+                    const link = document.createElement('a');
+                    const now = new Date();
+                    const filename = `TrendRadar_热点新闻分析_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.png`;
+
+                    link.download = filename;
+                    link.href = canvas.toDataURL('image/png', 1.0);
+
+                    // 触发下载
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+
+                    button.textContent = '保存成功!';
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.disabled = false;
+                    }, 2000);
+
+                } catch (error) {
+                    const buttons = document.querySelector('.save-buttons');
+                    buttons.style.visibility = 'visible';
+                    button.textContent = '保存失败';
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.disabled = false;
+                    }, 2000);
+                }
+            }
+
+            async function saveAsMultipleImages() {
+                const button = event.target;
+                const originalText = button.textContent;
+                const container = document.querySelector('.container');
+                const scale = 1.5;
+                const maxHeight = 5000 / scale;
+
+                try {
+                    button.textContent = '分析中...';
+                    button.disabled = true;
+
+                    // 获取所有可能的分割元素
+                    const newsItems = Array.from(container.querySelectorAll('.news-item'));
+                    const wordGroups = Array.from(container.querySelectorAll('.word-group'));
+                    const newSection = container.querySelector('.new-section');
+                    const errorSection = container.querySelector('.error-section');
+                    const header = container.querySelector('.header');
+                    const footer = container.querySelector('.footer');
+
+                    // 计算元素位置和高度
+                    const containerRect = container.getBoundingClientRect();
+                    const elements = [];
+
+                    // 添加header作为必须包含的元素
+                    elements.push({
+                        type: 'header',
+                        element: header,
+                        top: 0,
+                        bottom: header.offsetHeight,
+                        height: header.offsetHeight
+                    });
+
+                    // 添加错误信息（如果存在）
+                    if (errorSection) {
+                        const rect = errorSection.getBoundingClientRect();
+                        elements.push({
+                            type: 'error',
+                            element: errorSection,
+                            top: rect.top - containerRect.top,
+                            bottom: rect.bottom - containerRect.top,
+                            height: rect.height
+                        });
+                    }
+
+                    // 按word-group分组处理news-item
+                    wordGroups.forEach(group => {
+                        const groupRect = group.getBoundingClientRect();
+                        const groupNewsItems = group.querySelectorAll('.news-item');
+
+                        // 添加word-group的header部分
+                        const wordHeader = group.querySelector('.word-header');
+                        if (wordHeader) {
+                            const headerRect = wordHeader.getBoundingClientRect();
+                            elements.push({
+                                type: 'word-header',
+                                element: wordHeader,
+                                parent: group,
+                                top: groupRect.top - containerRect.top,
+                                bottom: headerRect.bottom - containerRect.top,
+                                height: headerRect.height
+                            });
+                        }
+
+                        // 添加每个news-item
+                        groupNewsItems.forEach(item => {
+                            const rect = item.getBoundingClientRect();
+                            elements.push({
+                                type: 'news-item',
+                                element: item,
+                                parent: group,
+                                top: rect.top - containerRect.top,
+                                bottom: rect.bottom - containerRect.top,
+                                height: rect.height
+                            });
+                        });
+                    });
+
+                    // 添加新增新闻部分
+                    if (newSection) {
+                        const rect = newSection.getBoundingClientRect();
+                        elements.push({
+                            type: 'new-section',
+                            element: newSection,
+                            top: rect.top - containerRect.top,
+                            bottom: rect.bottom - containerRect.top,
+                            height: rect.height
+                        });
+                    }
+
+                    // 添加footer
+                    const footerRect = footer.getBoundingClientRect();
+                    elements.push({
+                        type: 'footer',
+                        element: footer,
+                        top: footerRect.top - containerRect.top,
+                        bottom: footerRect.bottom - containerRect.top,
+                        height: footer.offsetHeight
+                    });
+
+                    // 计算分割点
+                    const segments = [];
+                    let currentSegment = { start: 0, end: 0, height: 0, includeHeader: true };
+                    let headerHeight = header.offsetHeight;
+                    currentSegment.height = headerHeight;
+
+                    for (let i = 1; i < elements.length; i++) {
+                        const element = elements[i];
+                        const potentialHeight = element.bottom - currentSegment.start;
+
+                        // 检查是否需要创建新分段
+                        if (potentialHeight > maxHeight && currentSegment.height > headerHeight) {
+                            // 在前一个元素结束处分割
+                            currentSegment.end = elements[i - 1].bottom;
+                            segments.push(currentSegment);
+
+                            // 开始新分段
+                            currentSegment = {
+                                start: currentSegment.end,
+                                end: 0,
+                                height: element.bottom - currentSegment.end,
+                                includeHeader: false
+                            };
+                        } else {
+                            currentSegment.height = potentialHeight;
+                            currentSegment.end = element.bottom;
+                        }
+                    }
+
+                    // 添加最后一个分段
+                    if (currentSegment.height > 0) {
+                        currentSegment.end = container.offsetHeight;
+                        segments.push(currentSegment);
+                    }
+
+                    button.textContent = `生成中 (0/${segments.length})...`;
+
+                    // 隐藏保存按钮
+                    const buttons = document.querySelector('.save-buttons');
+                    buttons.style.visibility = 'hidden';
+
+                    // 为每个分段生成图片
+                    const images = [];
+                    for (let i = 0; i < segments.length; i++) {
+                        const segment = segments[i];
+                        button.textContent = `生成中 (${i + 1}/${segments.length})...`;
+
+                        // 创建临时容器用于截图
+                        const tempContainer = document.createElement('div');
+                        tempContainer.style.cssText = `
+                            position: absolute;
+                            left: -9999px;
+                            top: 0;
+                            width: ${container.offsetWidth}px;
+                            background: white;
+                        `;
+                        tempContainer.className = 'container';
+
+                        // 克隆容器内容
+                        const clonedContainer = container.cloneNode(true);
+
+                        // 移除克隆内容中的保存按钮
+                        const clonedButtons = clonedContainer.querySelector('.save-buttons');
+                        if (clonedButtons) {
+                            clonedButtons.style.display = 'none';
+                        }
+
+                        tempContainer.appendChild(clonedContainer);
+                        document.body.appendChild(tempContainer);
+
+                        // 等待DOM更新
+                        await new Promise(resolve => setTimeout(resolve, 100));
+
+                        // 使用html2canvas截取特定区域
+                        const canvas = await html2canvas(clonedContainer, {
+                            backgroundColor: '#ffffff',
+                            scale: scale,
+                            useCORS: true,
+                            allowTaint: false,
+                            imageTimeout: 10000,
+                            logging: false,
+                            width: container.offsetWidth,
+                            height: segment.end - segment.start,
+                            x: 0,
+                            y: segment.start,
+                            windowWidth: window.innerWidth,
+                            windowHeight: window.innerHeight
+                        });
+
+                        images.push(canvas.toDataURL('image/png', 1.0));
+
+                        // 清理临时容器
+                        document.body.removeChild(tempContainer);
+                    }
+
+                    // 恢复按钮显示
+                    buttons.style.visibility = 'visible';
+
+                    // 下载所有图片
+                    const now = new Date();
+                    const baseFilename = `TrendRadar_热点新闻分析_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+
+                    for (let i = 0; i < images.length; i++) {
+                        const link = document.createElement('a');
+                        link.download = `${baseFilename}_part${i + 1}.png`;
+                        link.href = images[i];
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+
+                        // 延迟一下避免浏览器阻止多个下载
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+
+                    button.textContent = `已保存 ${segments.length} 张图片!`;
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.disabled = false;
+                    }, 2000);
+
+                } catch (error) {
+                    console.error('分段保存失败:', error);
+                    const buttons = document.querySelector('.save-buttons');
+                    buttons.style.visibility = 'visible';
+                    button.textContent = '保存失败';
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.disabled = false;
+                    }, 2000);
+                }
+            }
+
+            document.addEventListener('DOMContentLoaded', function() {
+                window.scrollTo(0, 0);
+            });
+        </script>
+    </body>
+    </html>
+    

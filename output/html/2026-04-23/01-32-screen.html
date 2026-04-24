@@ -1,0 +1,1581 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>恒银智能舆情监控</title>
+  <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/7.0.1/css/all.min.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <style>
+    :root {
+      --bg-core: #050a1a;
+      --bg-edge: #0d1136;
+      --panel-bg: rgba(10, 15, 40, 0.7);
+      --panel-strong: rgba(8, 13, 34, 0.92);
+      --panel-soft: rgba(12, 18, 46, 0.62);
+      --line: rgba(0, 212, 255, 0.12);
+      --line-strong: rgba(0, 212, 255, 0.4);
+      --primary: #00d4ff;
+      --amber: #f0a500;
+      --purple: #a855f7;
+      --teal: #22d3ee;
+      --danger: #ff6b6b;
+      --text: #e8e8f0;
+      --text-soft: #c0c0d8;
+      --text-muted: #7b7b9e;
+      --text-faint: #4a4a6a;
+      --mono: 'JetBrains Mono', 'Courier New', monospace;
+      --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --shadow: 0 0 24px rgba(0, 212, 255, 0.15);
+      --shadow-strong: 0 16px 40px rgba(0, 0, 0, 0.32);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: radial-gradient(circle at 50% 40%, rgba(16, 29, 89, 0.42), transparent 42%), linear-gradient(135deg, var(--bg-core), var(--bg-edge));
+      color: var(--text);
+      font-family: var(--sans);
+    }
+
+    body {
+      position: relative;
+      padding: 16px;
+      letter-spacing: 0.01em;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    body::before,
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    body::before {
+      background-image:
+        linear-gradient(rgba(0, 180, 255, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 180, 255, 0.04) 1px, transparent 1px);
+      background-size: 20px 20px;
+      opacity: 0.65;
+    }
+
+    body::after {
+      background:
+        radial-gradient(circle at 12% 18%, rgba(0, 212, 255, 0.13) 0 2px, transparent 2px),
+        radial-gradient(circle at 78% 24%, rgba(168, 85, 247, 0.12) 0 1.8px, transparent 1.8px),
+        radial-gradient(circle at 64% 78%, rgba(34, 211, 238, 0.12) 0 2.2px, transparent 2.2px),
+        radial-gradient(circle at 30% 62%, rgba(255, 107, 107, 0.08) 0 1.6px, transparent 1.6px);
+      filter: blur(0.2px);
+      animation: particleDrift 32s linear infinite;
+      opacity: 0.75;
+    }
+
+    [v-cloak] {
+      display: none;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+      background: none;
+      border: none;
+      color: inherit;
+      outline: none;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    ul,
+    ol {
+      list-style: none;
+    }
+
+    ::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.2);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(0, 212, 255, 0.3);
+      border-radius: 999px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(0, 212, 255, 0.5);
+    }
+
+    #app {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      height: 100%;
+    }
+
+    .screen {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      position: relative;
+    }
+
+    .cyber-card {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background:
+        linear-gradient(180deg, rgba(0, 212, 255, 0.02), transparent 24%),
+        var(--panel-bg);
+      backdrop-filter: blur(12px);
+      box-shadow: var(--shadow-strong);
+      transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease;
+    }
+
+    .cyber-card:hover {
+      border-color: var(--line-strong);
+      box-shadow: var(--shadow), var(--shadow-strong);
+    }
+
+    .screen-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(380px, 0.85fr);
+      align-items: center;
+      gap: 16px;
+      padding: 12px 18px;
+      min-height: 100px;
+      animation: fadeRise 0.7s ease forwards;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .brand-icon {
+      width: 58px;
+      height: 58px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: linear-gradient(135deg, rgba(0, 212, 255, 0.16), rgba(168, 85, 247, 0.12));
+      border: 1px solid rgba(0, 212, 255, 0.2);
+      padding: 8px;
+      box-shadow: inset 0 0 22px rgba(0, 212, 255, 0.08);
+    }
+
+    .brand-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      filter: drop-shadow(0 0 10px rgba(0, 212, 255, 0.18));
+    }
+
+    .brand-text {
+      min-width: 0;
+    }
+
+    .brand-title {
+      font-size: 28px;
+      font-weight: 700;
+      color: #d8ecff;
+      line-height: 1.1;
+      text-shadow: 0 0 20px rgba(0, 212, 255, 0.12);
+    }
+
+    .brand-subtitle {
+      margin-top: 8px;
+      color: var(--text-muted);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+    }
+
+    .header-clock {
+      justify-self: end;
+      text-align: right;
+    }
+
+    .clock-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-family: var(--mono);
+      font-size: 36px;
+      font-weight: 800;
+      color: var(--primary);
+      letter-spacing: 0.04em;
+      text-shadow: 0 0 20px rgba(0, 212, 255, 0.24);
+    }
+
+    .clock-separator {
+      animation: colonBlink 1s steps(1, end) infinite;
+    }
+
+    .date-row {
+      margin-top: 10px;
+      color: var(--text-muted);
+      font-size: 13px;
+      letter-spacing: 0.12em;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+      animation: fadeRise 0.75s ease forwards;
+      animation-delay: 0.08s;
+      opacity: 0;
+      align-items: stretch;
+    }
+
+    .stat-card {
+      min-height: 132px;
+      padding: 18px 18px 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      border-radius: 12px;
+      transform-origin: center;
+      animation: breatheGlow 3.8s ease-in-out infinite;
+    }
+
+    .stats-grid .stat-card:nth-child(2) {
+      animation-delay: 0.35s;
+    }
+
+    .stats-grid .stat-card:nth-child(3) {
+      animation-delay: 0.7s;
+    }
+
+    .stats-grid .stat-card:nth-child(4) {
+      animation-delay: 1.05s;
+    }
+
+    .stat-card::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at 16% 18%, rgba(0, 212, 255, 0.12), transparent 34%),
+        linear-gradient(135deg, rgba(0, 212, 255, 0.05), transparent 44%, rgba(168, 85, 247, 0.03));
+      opacity: 0.52;
+      animation: breatheOverlay 3.8s ease-in-out infinite;
+    }
+
+    .stats-grid .stat-card:nth-child(2)::after {
+      animation-delay: 0.35s;
+    }
+
+    .stats-grid .stat-card:nth-child(3)::after {
+      animation-delay: 0.7s;
+    }
+
+    .stats-grid .stat-card:nth-child(4)::after {
+      animation-delay: 1.05s;
+    }
+
+    .stat-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .stat-icon {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      font-size: 15px;
+      background: rgba(0, 212, 255, 0.08);
+      border: 1px solid rgba(0, 212, 255, 0.16);
+    }
+
+    .stat-label {
+      color: var(--text-muted);
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .stat-value {
+      margin-top: 12px;
+      font-size: 32px;
+      font-weight: 800;
+      color: var(--primary);
+      font-family: var(--mono);
+      line-height: 1;
+      text-shadow: 0 0 16px rgba(0, 212, 255, 0.18);
+    }
+
+    .stat-value.is-text {
+      font-size: 26px;
+      font-family: var(--sans);
+      font-weight: 700;
+      color: var(--text);
+      text-shadow: none;
+    }
+
+    .stat-foot {
+      margin-top: 16px;
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+
+    .main-grid {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr);
+      gap: 16px;
+      align-items: stretch;
+    }
+
+    .column {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .pane-left,
+    .pane-center,
+    .pane-right {
+      animation: fadeRise 0.78s ease forwards;
+      opacity: 0;
+    }
+
+    .pane-left {
+      animation-delay: 0.18s;
+    }
+
+    .pane-center {
+      animation-delay: 0.38s;
+    }
+
+    .pane-right {
+      animation-delay: 0.58s;
+    }
+
+    .panel {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .panel-header {
+      padding: 18px 18px 14px;
+      border-bottom: 1px solid rgba(0, 212, 255, 0.08);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent);
+    }
+
+    .panel-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .panel-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .panel-icon {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: rgba(0, 212, 255, 0.08);
+      color: var(--primary);
+      font-size: 14px;
+      border: 1px solid rgba(0, 212, 255, 0.12);
+    }
+
+    .panel-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .panel-subtitle {
+      margin-top: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+      letter-spacing: 0.08em;
+    }
+
+    .panel-body {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 16px 18px 18px;
+    }
+
+    .analysis-panel {
+      flex: 1;
+    }
+
+    .analysis-list {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .analysis-block {
+      position: relative;
+      padding: 16px;
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015));
+      border: 1px solid rgba(0, 212, 255, 0.08);
+    }
+
+    .analysis-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .analysis-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .analysis-badge {
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(240, 165, 0, 0.12);
+      border: 1px solid rgba(240, 165, 0, 0.18);
+      color: #ffd78d;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .analysis-html {
+      color: var(--text-soft);
+      font-size: 13px;
+      line-height: 1.72;
+    }
+
+    .analysis-html strong {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .analysis-html .analysis-tag {
+      display: inline-block;
+      margin-bottom: 10px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(0, 212, 255, 0.12);
+      color: var(--primary);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+    }
+
+    .center-shell {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .category-bar-shell {
+      position: relative;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      overflow-x: auto;
+      overflow-y: hidden;
+    }
+
+    .category-bar {
+      position: relative;
+      display: inline-flex;
+      gap: 8px;
+      min-width: max-content;
+      padding-bottom: 4px;
+    }
+
+    .category-indicator {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      height: 2px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(0, 212, 255, 0.65), rgba(34, 211, 238, 1));
+      box-shadow: 0 0 18px rgba(0, 212, 255, 0.35);
+      transition: transform 0.3s ease, width 0.3s ease;
+      pointer-events: none;
+    }
+
+    .category-chip {
+      position: relative;
+      z-index: 1;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 9px 14px;
+      border-radius: 999px;
+      background: rgba(7, 11, 30, 0.9);
+      color: var(--text-muted);
+      cursor: pointer;
+      border: 1px solid rgba(255, 255, 255, 0.03);
+      white-space: nowrap;
+      transition: color 0.3s ease, background 0.3s ease, transform 0.3s ease;
+      font-size: 12px;
+    }
+
+    .category-chip:hover {
+      color: var(--text);
+      transform: translateY(-1px);
+    }
+
+    .category-chip.is-active {
+      color: #061423;
+      background: linear-gradient(90deg, rgba(0, 212, 255, 0.92), rgba(34, 211, 238, 0.92));
+      box-shadow: 0 0 18px rgba(0, 212, 255, 0.22);
+    }
+
+    .news-board {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .news-board-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .news-board-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: 0.02em;
+    }
+
+    .page-tools {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .page-indicator {
+      color: var(--text-muted);
+      font-family: var(--mono);
+      font-size: 12px;
+      min-width: 48px;
+      text-align: center;
+    }
+
+    .page-btn {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      cursor: pointer;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(0, 212, 255, 0.08);
+      color: var(--text-soft);
+      transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+    }
+
+    .page-btn:hover {
+      background: rgba(0, 212, 255, 0.08);
+      border-color: rgba(0, 212, 255, 0.22);
+      color: var(--primary);
+    }
+
+    .news-list-wrap {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .news-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .news-item {
+      padding: 16px 18px;
+      display: grid;
+      grid-template-columns: 48px minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+      background: rgba(8, 14, 34, 0.88);
+      border: 1px solid rgba(0, 212, 255, 0.08);
+      border-radius: 12px;
+      transition: background 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
+    }
+
+    .news-item.top-1 {
+      background:
+        linear-gradient(135deg, rgba(255, 107, 107, 0.16), rgba(8, 14, 34, 0.9) 56%),
+        rgba(8, 14, 34, 0.88);
+      border-color: rgba(255, 107, 107, 0.28);
+    }
+
+    .news-item.top-2 {
+      background:
+        linear-gradient(135deg, rgba(240, 137, 64, 0.15), rgba(8, 14, 34, 0.9) 56%),
+        rgba(8, 14, 34, 0.88);
+      border-color: rgba(240, 137, 64, 0.24);
+    }
+
+    .news-item.top-3 {
+      background:
+        linear-gradient(135deg, rgba(240, 197, 91, 0.13), rgba(8, 14, 34, 0.9) 56%),
+        rgba(8, 14, 34, 0.88);
+      border-color: rgba(240, 197, 91, 0.22);
+    }
+
+    .news-item:hover {
+      background: rgba(0, 212, 255, 0.05);
+      border-color: rgba(0, 212, 255, 0.22);
+      transform: translateY(-1px);
+    }
+
+    .news-index {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--mono);
+      color: var(--primary);
+    }
+
+    .news-index strong {
+      font-size: 28px;
+      line-height: 1;
+      font-weight: 800;
+      text-shadow: 0 0 14px rgba(0, 212, 255, 0.12);
+    }
+
+    .news-index span {
+      font-size: 10px;
+      color: var(--text-faint);
+      letter-spacing: 0.12em;
+    }
+
+    .news-main {
+      min-width: 0;
+    }
+
+    .news-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .meta-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      white-space: nowrap;
+    }
+
+    .meta-pill.source {
+      color: var(--text-soft);
+      background: rgba(168, 85, 247, 0.08);
+      border-color: rgba(168, 85, 247, 0.14);
+    }
+
+    .meta-pill.rank {
+      color: #9fe7ff;
+      background: rgba(0, 212, 255, 0.08);
+      border-color: rgba(0, 212, 255, 0.12);
+    }
+
+    .meta-pill.freq {
+      color: #95ffe3;
+      background: rgba(34, 211, 238, 0.08);
+      border-color: rgba(34, 211, 238, 0.12);
+    }
+
+    .meta-pill.new {
+      color: #2b1a00;
+      background: linear-gradient(90deg, #f0a500, #ffd166);
+      border-color: rgba(240, 165, 0, 0.35);
+      font-weight: 800;
+      box-shadow: 0 0 18px rgba(240, 165, 0, 0.16);
+    }
+
+    .news-link {
+      display: inline;
+      font-size: 18px;
+      font-weight: 600;
+      line-height: 1.55;
+      color: var(--text);
+      transition: color 0.25s ease;
+    }
+
+    .news-item:hover .news-link {
+      color: var(--primary);
+    }
+
+    .news-summary {
+      margin-top: 10px;
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .news-fade-enter-active,
+    .news-fade-leave-active {
+      transition: all 0.32s ease;
+    }
+
+    .news-fade-enter-from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+
+    .news-fade-leave-to {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+
+    .side-stack {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: minmax(210px, 0.92fr) minmax(320px, 1.22fr) minmax(160px, 0.78fr);
+      gap: 16px;
+    }
+
+    .keyword-cloud {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .keyword-tag {
+      position: relative;
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text-soft);
+    }
+
+    .keyword-tag:hover {
+      transform: scale(1.15);
+      box-shadow: 0 0 18px rgba(0, 212, 255, 0.18);
+    }
+
+    .keyword-tag.is-selected {
+      border-color: rgba(0, 212, 255, 0.32);
+      box-shadow: 0 0 20px rgba(0, 212, 255, 0.24);
+    }
+
+    .tone-cyan {
+      color: #9ff6ff;
+      background: rgba(0, 212, 255, 0.09);
+    }
+
+    .tone-purple {
+      color: #d4b0ff;
+      background: rgba(168, 85, 247, 0.1);
+    }
+
+    .tone-green {
+      color: #97fff3;
+      background: rgba(34, 211, 238, 0.08);
+    }
+
+    .tone-red {
+      color: #ffc2c2;
+      background: rgba(255, 107, 107, 0.08);
+    }
+
+    .tone-amber {
+      color: #ffe2a3;
+      background: rgba(240, 165, 0, 0.08);
+    }
+
+    .chart-box {
+      width: 100%;
+      height: 100%;
+      min-height: 300px;
+    }
+
+    .rss-empty {
+      height: 100%;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      color: var(--text-muted);
+      gap: 12px;
+    }
+
+    .rss-empty svg {
+      width: 56px;
+      height: 56px;
+      opacity: 0.8;
+    }
+
+    .rss-empty strong {
+      display: block;
+      color: var(--text-soft);
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    .fa-solid,
+    .fa-regular {
+      line-height: 1;
+    }
+
+    .signal-dots {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-faint);
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+
+    .signal-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--primary);
+      box-shadow: 0 0 12px rgba(0, 212, 255, 0.4);
+    }
+
+    @keyframes fadeRise {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes colonBlink {
+      0%, 49% {
+        opacity: 1;
+      }
+      50%, 100% {
+        opacity: 0.22;
+      }
+    }
+
+    @keyframes particleDrift {
+      0% {
+        transform: translate3d(0, 0, 0);
+      }
+      50% {
+        transform: translate3d(-18px, -10px, 0);
+      }
+      100% {
+        transform: translate3d(0, 0, 0);
+      }
+    }
+
+    @keyframes breatheGlow {
+      0%, 100% {
+        box-shadow: 0 0 0 rgba(0, 212, 255, 0), 0 16px 40px rgba(0, 0, 0, 0.32);
+        border-color: var(--line);
+        transform: translateY(0) scale(1);
+      }
+      50% {
+        box-shadow:
+          0 0 0 1px rgba(0, 212, 255, 0.06),
+          0 0 34px rgba(0, 212, 255, 0.2),
+          0 18px 44px rgba(0, 0, 0, 0.36);
+        border-color: rgba(0, 212, 255, 0.3);
+        transform: translateY(-1px) scale(1.012);
+      }
+    }
+
+    @keyframes breatheOverlay {
+      0%, 100% {
+        opacity: 0.42;
+      }
+      50% {
+        opacity: 0.88;
+      }
+    }
+
+    @media (max-width: 1600px) {
+      .screen-header {
+        grid-template-columns: minmax(0, 1fr) minmax(320px, 0.8fr);
+      }
+
+      .brand-title {
+        font-size: 24px;
+      }
+
+      .clock-row {
+        font-size: 36px;
+      }
+
+      .news-link {
+        font-size: 16px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app" v-cloak>
+    <div class="screen">
+      <header class="screen-header cyber-card">
+        <div class="brand">
+          <div class="brand-icon">
+            <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATUAAAEzCAYAAABQRpQZAAAACXBIWXMAAD2DAAA9gwGH6AkLAAAHO0lEQVR4nO3dwVHc2BqG4R8XAbDXhpW2YiIwRHDJwJ4IbCIAR+DJwDiC8URgnAHaanPZaO8QbmlKXozHrutCdCN9/TxV3rmg9R94+6jp6nPUt83rqjotgI3rhvHmuKpeVdW5xQQC3LywikASUQOiiBoQRdSAKKIGRBE1IIqoAVFEDYgiakAUUQOiiBoQRdSAKKIGRBE1IIqoAVFEDYgiakAUUQOiiBoQRdSAKKIGRBE1IIqoAVGmcz8/VtUXywoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8AyODJ1d6dvmpKouq+plVZ3N/2BX7rphvDg2Xp5a3zbnVfWqql4bLvt2PP8Anu/o+952w/iwy2vq2+bzjr70x24Yb3f0tSPNO7Prqnp76LPg+RzPQbve0SO4q6qdRm2HQd75Ac9929zscPYX3TDe7ehr/0vfNtOt5Qe3mDw3t58sNu/Qph3ziWny3F5YAZ6AoLEaosYifdu8dcvJmogaS70xQdZE1Hi0vm2m96CdmiBrImos8dL0WBtRYwmvpbE6osYSu3qPIDyaqAFRRA2IImpAFFEDoogaEEXUgCiiBkQRNSCKqAFRRA2IImpAFFEDoogaEEXUgChOk2Ir9nbcH5t1X6LGVnTDeGGx+BVuP4EoogZEETUgiqgBUUQNiCJqQBRRA6KIGhBF1IAoogZEETUgiqgBUUQNiCJqQBRRA6KIGhBF1IAoogZEETUgiqgBUUQNiCJqQBRRA6KIGhBF1IAoogZEETUgiqgBUUQNiCJqQBRRA6KIGhBF1IAoogZEETUgiqgBUUQNiCJqQBRRA6IcW062oG+bGwt10O6q6qEbxof/NwRRYyuurdRB+3v9+7aZovaxqm5/Fji3n8CWnM6B+2/fNu/7tjn5/rGLGrBVb6vq8/dhEzVgy86+D5uoAVs3he3Dt2sQNSDBZd825yVqQJBXJWpAkMsSNSDISd82Z6IGJDkRNSCKqAFRRA2IImpAFFEDoogaS9yZHmsjaizxl+mxNqLGEp9Mj7URNR5t/uTRWxNkTUSNpd5V1VdTZC1EjUXm3dqVKbIWosZi3TBOt6B/mCRrIGo8iW4Yr4SNNRA1nswctt+9xsZzEjWe1Hwr+ps35vJcRI0nN/3xoBvGi6q6mN/yYefG3jihnZ3phvFu3rH9Pn0i6fQBfqZ9kN7PJz7thaixF90w3pv0YerbZq87dbefQBRRA6KIGhBF1IAoogZEETUgiqgBUUQNiCJqQBRRA6KIGhBF1IAoogZEETUgiqgBUUQNiCJqQBRRA6KIGhBF1IAoogZEETUgiiPyeHJ927yuqv/MZz2emvDe3c0HSH+pqk/T4dKHdPGixpPp2+ZyPrhWyJ7X+fzd/16Pvm2myL2bD5eO5/aTJzHvzv4UtFWaIve5b5s/+7aJPyVf1FhsDtoHk1y9yzlu0WETNRbp2+Z0vuVkG87SwyZqLHVdVfG3NGHO5nWLJGo82vxs/9oEN+ntvMuOI2oscWl6m/Ym8aJEjSVemt6mRT4piRpLePvGtp32bXOWdlGixhLnprd5cU9MogaHzU4NYM1EDYgiakAUUeNR+rbxRwJWSdSAKKIGRBE1IIqoAVFEDYgiakAUUQOiiBoQRdSAKKIGRBE1HuugTv1mO5zQzqN0w/jQt83ehtcN49GhrFTfNjfJpz3tmp0aEEXUgCiiBkQRNSCKqAFRRA2IImpAFFEDoogaEEXUgCiiBkQRNSCKqAFRRA2IImpAFFEDoogaEEXUgCg+zhtWphvG6eO8b6zL49ipAVFEDYgiakAUUQOiiBoQRdSAKKIGRBE1IIqoAVFEDYgiakAUUQOiiBoQRdSAKKIGRBE1IIqoAVFEDYgiakAUUQOiOHiFTejbxkEk23W6z0cuamzFtZXiV7j9BKKIGhBF1IAoogZEETUgiqgBUUQNiCJqQBRRA6KIGhBF1IAoogZEETUgiqgBUUQNiCJqLPHV9FiZe1FjiTvTY0W+dsP4VdRY4ovpsSKfyu0nC30yQFbkrxI1luiG8aGqbg2RFXjohtFOjSfxzh8MWIGrbw9B1Fhk3q1dmSLP6I9vu7Saj8i73eFfse6tdL5uGG/7tpmu88Ohz4K9u+2G8R9PqsfzM+2DtWCJOWwPc9j2engtB2l6yeNq+rn7/uI3f5hxN4xHK3gY+3T/g9ewfvTWir3vkrthvOvb5requqyqN1V1tu/HQLzp5/rjvEP74Wu5hxaEVenb5ryqzufH9KMd8/3PFm4j13cyh+38F/47/My3341N/z4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/NRR3zbTaT8nRgRs3XRM43Tu53tHmAEhjl5YSSCJqAFRRA2IImpAFFEDoogaEEXUgCiiBkQRNSCKqAFRRA2IImpAFFEDoogaEEXUgCiiBkQRNSCKqAFRRA2IImpAFFEDoogaEEXUgCjTuZ/3lhSIUFX/AwoL+t7DLujgAAAAAElFTkSuQmCC" alt="恒银智能舆情监控 Logo">
+          </div>
+          <div class="brand-text">
+            <div class="brand-title">{{ meta.title }}</div>
+            <div class="brand-subtitle">{{ meta.subtitle }}</div>
+          </div>
+        </div>
+
+        <div class="header-clock">
+          <div class="clock-row">
+            <span>{{ clockParts.hh }}</span>
+            <span class="clock-separator">:</span>
+            <span>{{ clockParts.mm }}</span>
+            <span class="clock-separator">:</span>
+            <span>{{ clockParts.ss }}</span>
+          </div>
+          <div class="date-row">{{ meta.dateLabel }}</div>
+        </div>
+      </header>
+
+      <section class="stats-grid">
+        <article class="stat-card cyber-card" v-for="card in statsCards" :key="card.key">
+          <div>
+            <div class="stat-head">
+              <span class="stat-icon"><i :class="card.iconClass"></i></span>
+              <span class="stat-label">{{ card.label }}</span>
+            </div>
+            <div :class="['stat-value', { 'is-text': card.type !== 'number' }]">
+              <template v-if="card.type === 'number'">
+                {{ animatedStats[card.key] }} 条
+              </template>
+              <template v-else>
+                {{ card.value }}
+              </template>
+            </div>
+          </div>
+          <div class="stat-foot">{{ card.foot }}</div>
+        </article>
+      </section>
+
+      <section class="main-grid">
+        <div class="column pane-left">
+          <section class="panel analysis-panel cyber-card">
+            <div class="panel-header">
+              <div class="panel-title-row">
+                <div class="panel-title-wrap">
+                  <span class="panel-icon"><i class="fa-solid fa-brain"></i></span>
+                  <div>
+                    <div class="panel-title">AI 热点分析</div>
+                    <div class="panel-subtitle">基于大模型的智能研判</div>
+                  </div>
+                </div>
+                <div class="signal-dots">
+                  <span class="signal-dot"></span>
+                  <span>AI</span>
+                </div>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="analysis-list">
+                <article class="analysis-block" v-for="panel in aiPanels" :key="panel.title">
+                  <div class="analysis-head">
+                    <div class="analysis-title">{{ panel.title }}</div>
+                    <div class="analysis-badge" v-if="panel.badge">{{ panel.badge }}</div>
+                  </div>
+                  <div class="analysis-html" v-html="panel.html"></div>
+                </article>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="column pane-center">
+          <section class="panel center-shell cyber-card">
+            <div class="panel-header">
+              <div class="panel-title-row">
+                <div class="panel-title-wrap">
+                  <span class="panel-icon"><i class="fa-solid fa-satellite-dish"></i></span>
+                  <div>
+                    <div class="panel-title">实时资讯列表</div>
+                    <div class="panel-subtitle">分类标签、分页轮播与热度追踪</div>
+                  </div>
+                </div>
+                <div class="signal-dots">
+                  <span class="signal-dot"></span>
+                  <span>{{ selectedCategory }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel-body">
+              <div class="category-bar-shell" ref="categoryBarRef">
+                <nav class="category-bar">
+                  <button
+                    v-for="category in categories"
+                    :key="category.name"
+                    class="category-chip"
+                    :class="{ 'is-active': category.name === selectedCategory }"
+                    :data-category="category.name"
+                    type="button"
+                    @click="selectCategory(category.name)"
+                  >
+                    <span>{{ category.name }}</span>
+                    <span>({{ category.count }})</span>
+                  </button>
+                  <div class="category-indicator" :style="categoryIndicatorStyle"></div>
+                </nav>
+              </div>
+
+              <div class="news-board">
+                <div class="news-board-header">
+                  <div class="news-board-title">{{ selectedCategory }}（共 {{ filteredNews.length }} 条）</div>
+                  <div class="page-tools">
+                    <button class="page-btn" type="button" @click="prevPage" aria-label="上一页"><i class="fa-solid fa-chevron-left"></i></button>
+                    <span class="page-indicator">{{ currentPage }}/{{ totalPages }}</span>
+                    <button class="page-btn" type="button" @click="nextPage" aria-label="下一页"><i class="fa-solid fa-chevron-right"></i></button>
+                  </div>
+                </div>
+
+                <div class="news-list-wrap">
+                  <transition-group name="news-fade" tag="div" class="news-list">
+                    <article class="news-item" :class="item.topClass" v-for="item in visibleNews" :key="item.key">
+                      <div class="news-index">
+                        <strong>{{ item.displayIndex }}</strong>
+                        <span>No.</span>
+                      </div>
+
+                      <div class="news-main">
+                        <div class="news-meta">
+                          <span class="meta-pill source">{{ item.source_name }}</span>
+                          <span class="meta-pill rank">{{ item.rankText }}</span>
+                          <span class="meta-pill">{{ item.time_display }}</span>
+                          <span class="meta-pill freq">{{ item.count }}次</span>
+                          <span class="meta-pill new" v-if="item.is_new">NEW</span>
+                        </div>
+                        <a :href="item.url" target="_blank" rel="noreferrer" class="news-link">{{ item.title }}</a>
+                        <div class="news-summary">{{ item.summary }}</div>
+                      </div>
+                    </article>
+                  </transition-group>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="column pane-right">
+          <div class="side-stack">
+            <section class="panel cyber-card">
+              <div class="panel-header">
+                <div class="panel-title-row">
+                  <div class="panel-title-wrap">
+                    <span class="panel-icon"><i class="fa-solid fa-cloud"></i></span>
+                    <div>
+                      <div class="panel-title">实时关键词云</div>
+                      <div class="panel-subtitle">点击关键词可同步筛选对应分类</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="panel-body">
+                <div class="keyword-cloud">
+                  <button
+                    v-for="keyword in keywordCloud"
+                    :key="keyword.name"
+                    type="button"
+                    class="keyword-tag"
+                    :class="[keyword.toneClass, { 'is-selected': selectedKeyword === keyword.name }]"
+                    @click="selectKeyword(keyword)"
+                  >
+                    {{ keyword.name }}
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel cyber-card">
+              <div class="panel-header">
+                <div class="panel-title-row">
+                  <div class="panel-title-wrap">
+                    <span class="panel-icon"><i class="fa-solid fa-chart-column"></i></span>
+                    <div>
+                      <div class="panel-title">资讯来源分布</div>
+                      <div class="panel-subtitle">按热点新闻条数排序的来源活跃度</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="panel-body">
+                <div ref="sourceChartRef" class="chart-box"></div>
+              </div>
+            </section>
+
+            <section class="panel cyber-card">
+              <div class="panel-header">
+                <div class="panel-title-row">
+                  <div class="panel-title-wrap">
+                    <span class="panel-icon"><i class="fa-solid fa-rss"></i></span>
+                    <div>
+                      <div class="panel-title">RSS 新增更新</div>
+                      <div class="panel-subtitle">订阅源最新动态</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="panel-body">
+                <div class="rss-empty" v-if="!rssState.items.length">
+                  <div>
+                    <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                      <rect x="10" y="10" width="44" height="44" rx="4" stroke="#00d4ff" stroke-opacity="0.45"/>
+                      <path d="M20 42C28 42 34 48 34 56" stroke="#22d3ee" stroke-width="3" stroke-linecap="round"/>
+                      <path d="M20 32C33 32 44 43 44 56" stroke="#a855f7" stroke-width="3" stroke-linecap="round"/>
+                      <circle cx="21" cy="55" r="3" fill="#00d4ff"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <strong>暂无内容</strong>
+                    <div>{{ rssState.subtitle }}</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>globalThis.__TRENDRADAR_SCREEN__ = {"meta": {"title": "恒银智能舆情监控", "subtitle": "刷新时间：04/23 01:32", "refreshTime": "04/23 01:32", "reportType": "当前榜单", "updateTime": "04-23 01:32", "dateLabel": "2026年4月23日 星期四"}, "stats": {"newsTotal": 367, "hotNews": 158, "reportType": "当前榜单", "updateTime": "04-23 01:32"}, "categories": [{"name": "国际关系", "count": 94, "module": "地缘政治与国际贸易"}, {"name": "库存与物流", "count": 17, "module": "产业与供需基本面"}, {"name": "特定品种板块", "count": 11, "module": "市场情绪与盘面特征"}, {"name": "经济数据", "count": 9, "module": "宏观与金融政策"}, {"name": "社会动荡", "count": 7, "module": "灾害与安全事件"}, {"name": "价格波动", "count": 6, "module": "市场情绪与盘面特征"}, {"name": "人为事故", "count": 5, "module": "灾害与安全事件"}, {"name": "市场情绪", "count": 4, "module": "市场情绪与盘面特征"}, {"name": "重点企业", "count": 2, "module": "企业与行业动态"}, {"name": "供给与生产", "count": 1, "module": "产业与供需基本面"}, {"name": "需求与消费", "count": 1, "module": "产业与供需基本面"}, {"name": "国际组织与报告", "count": 1, "module": "地缘政治与国际贸易"}, {"name": "金融机构与监管", "count": 0, "module": "宏观与金融政策"}, {"name": "自然灾害", "count": 0, "module": "灾害与安全事件"}, {"name": "成本与利润", "count": 0, "module": "产业与供需基本面"}, {"name": "行业政策", "count": 0, "module": "企业与行业动态"}], "news": [{"id": "社会动荡-1", "title": "伊朗战争丨伊朗否认举行美伊新谈判：特朗普又说谎了", "url": "https://news.ifeng.com/loc/timeline/event/8r727OWpK5W", "source_name": "凤凰网", "time_display": "[00:02 ~ 01:31]", "ranks": [1], "is_new": false, "count": 10, "category": "社会动荡", "module": "灾害与安全事件", "heat_score": 46.0, "summary": "命中「社会动荡」模块，综合热度 46.0，累计出现 10 次。"}, {"id": "国际关系-1", "title": "最后时刻反转！伊朗拒绝谈判，特朗普宣布延长停火，维持海上封锁等待伊朗提交方案", "url": "https://wallstreetcn.com/articles/3770539", "source_name": "华尔街见闻", "time_display": "[00:02 ~ 01:31]", "ranks": [1], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 46.0, "summary": "命中「国际关系」模块，综合热度 46.0，累计出现 10 次。"}, {"id": "重点企业-1", "title": "如何看待宁德时代超充电池从 10% 充到 98% 只需要 6 分 27 秒？", "url": "https://www.zhihu.com/question/2030155187717936842", "source_name": "知乎", "time_display": "[00:02 ~ 01:31]", "ranks": [1], "is_new": false, "count": 10, "category": "重点企业", "module": "企业与行业动态", "heat_score": 46.0, "summary": "命中「重点企业」模块，综合热度 46.0，累计出现 10 次。"}, {"id": "国际关系-2", "title": "特朗普延长与伊朗停火，外交部回应", "url": "https://news.ifeng.com/c/8sX5InWbAM4", "source_name": "凤凰网", "time_display": "[00:02 ~ 01:31]", "ranks": [2], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 45.4, "summary": "命中「国际关系」模块，综合热度 45.4，累计出现 10 次。"}, {"id": "国际关系-3", "title": "“特朗普总是临阵脱逃”：TACO背后的股市反常繁荣和内幕交易争议", "url": "https://www.thepaper.cn/newsDetail_forward_33019660", "source_name": "澎湃新闻", "time_display": "[00:02 ~ 01:31]", "ranks": [2], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 45.4, "summary": "命中「国际关系」模块，综合热度 45.4，累计出现 10 次。"}, {"id": "国际关系-4", "title": "朝鲜发声要求日本向中国道歉", "url": "https://www.toutiao.com/trending/7630601920629801002/", "source_name": "今日头条", "time_display": "[00:02 ~ 01:31]", "ranks": [2], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 45.4, "summary": "命中「国际关系」模块，综合热度 45.4，累计出现 10 次。"}, {"id": "市场情绪-1", "title": "四家A股公司同日被立案 均涉信披违法违规|速读公告", "url": "https://www.cls.cn/detail/2352729", "source_name": "财联社热门", "time_display": "[00:02 ~ 01:31]", "ranks": [2], "is_new": false, "count": 10, "category": "市场情绪", "module": "市场情绪与盘面特征", "heat_score": 45.4, "summary": "命中「市场情绪」模块，综合热度 45.4，累计出现 10 次。"}, {"id": "国际关系-5", "title": "伊朗停火谈判生变，美股收跌，芯片股指十五连涨，油价再涨，金银下挫", "url": "https://wallstreetcn.com/articles/3770463", "source_name": "华尔街见闻", "time_display": "[00:02 ~ 01:31]", "ranks": [3, 2], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 45.1, "summary": "命中「国际关系」模块，综合热度 45.1，累计出现 10 次。"}, {"id": "国际关系-6", "title": "据称特朗普将再给伊朗3至5天停火时间", "url": "https://www.cls.cn/detail/2352682", "source_name": "财联社热门", "time_display": "[00:02 ~ 01:31]", "ranks": [3], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 44.8, "summary": "命中「国际关系」模块，综合热度 44.8，累计出现 10 次。"}, {"id": "国际关系-7", "title": "中国在月球留下了新的名字", "url": "https://s.weibo.com/weibo?q=%23%E4%B8%AD%E5%9B%BD%E5%9C%A8%E6%9C%88%E7%90%83%E7%95%99%E4%B8%8B%E4%BA%86%E6%96%B0%E7%9A%84%E5%90%8D%E5%AD%97%23", "source_name": "微博", "time_display": "[00:02 ~ 01:31]", "ranks": [3], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 44.8, "summary": "命中「国际关系」模块，综合热度 44.8，累计出现 10 次。"}, {"id": "国际关系-8", "title": "中国空间站将迎来巴基斯坦航天员", "url": "https://search.bilibili.com/all?keyword=%E4%B8%AD%E5%9B%BD%E7%A9%BA%E9%97%B4%E7%AB%99%E5%B0%86%E8%BF%8E%E6%9D%A5%E5%B7%B4%E5%9F%BA%E6%96%AF%E5%9D%A6%E8%88%AA%E5%A4%A9%E5%91%98", "source_name": "bilibili 热搜", "time_display": "[00:02 ~ 01:31]", "ranks": [4, 3], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 44.5, "summary": "命中「国际关系」模块，综合热度 44.5，累计出现 10 次。"}, {"id": "国际关系-9", "title": "中国驻日本大使馆提醒：近期避免前往日本", "url": "https://news.ifeng.com/c/8sXEAXgfJaA", "source_name": "凤凰网", "time_display": "[00:02 ~ 01:31]", "ranks": [4], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 44.2, "summary": "命中「国际关系」模块，综合热度 44.2，累计出现 10 次。"}, {"id": "特定品种板块-1", "title": "地缘缓和叠加强劲财报，美股指高开，费城半导体指数连续第16天上涨，布油重回100美元、黄金涨幅回落", "url": "https://wallstreetcn.com/articles/3770587", "source_name": "华尔街见闻", "time_display": "[00:02 ~ 01:31]", "ranks": [5, 4], "is_new": false, "count": 10, "category": "特定品种板块", "module": "市场情绪与盘面特征", "heat_score": 43.9, "summary": "命中「特定品种板块」模块，综合热度 43.9，累计出现 10 次。"}, {"id": "库存与物流-1", "title": "霍尔木兹惊现诈骗,印度中招", "url": "https://tieba.baidu.com/hottopic/browse/hottopic?amp%3Btopic_name=%E9%9C%8D%E5%B0%94%E6%9C%A8%E5%85%B9%E6%83%8A%E7%8E%B0%E8%AF%88%E9%AA%97%2C%E5%8D%B0%E5%BA%A6%E4%B8%AD%E6%8B%9B&topic_id=28353608", "source_name": "贴吧", "time_display": "[00:02 ~ 01:31]", "ranks": [5], "is_new": false, "count": 10, "category": "库存与物流", "module": "产业与供需基本面", "heat_score": 43.6, "summary": "命中「库存与物流」模块，综合热度 43.6，累计出现 10 次。"}, {"id": "国际关系-10", "title": "美媒：特朗普再给伊朗3至5天停火时间", "url": "https://news.ifeng.com/c/8sXS8jC94HP", "source_name": "凤凰网", "time_display": "[00:02 ~ 01:31]", "ranks": [5], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 43.6, "summary": "命中「国际关系」模块，综合热度 43.6，累计出现 10 次。"}, {"id": "国际关系-11", "title": "大不了关掉美国工厂！曹德旺谈美国加征关税：福耀绝不做赔本买卖", "url": "https://www.thepaper.cn/newsDetail_forward_33027444", "source_name": "澎湃新闻", "time_display": "[00:02 ~ 01:31]", "ranks": [6, 4], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 38.6, "summary": "命中「国际关系」模块，综合热度 38.6，累计出现 10 次。"}, {"id": "国际关系-12", "title": "曹德旺：大不了关掉美国工厂", "url": "https://www.cls.cn/detail/2352380", "source_name": "财联社热门", "time_display": "[00:02 ~ 01:31]", "ranks": [6, 5], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 38.3, "summary": "命中「国际关系」模块，综合热度 38.3，累计出现 10 次。"}, {"id": "国际关系-13", "title": "拒绝谈判后，伊朗：收到“一些信号”暗示美国准备解除封锁", "url": "https://wallstreetcn.com/articles/3770583", "source_name": "华尔街见闻", "time_display": "[00:02 ~ 01:31]", "ranks": [6, 5], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 38.3, "summary": "命中「国际关系」模块，综合热度 38.3，累计出现 10 次。"}, {"id": "国际关系-14", "title": "曹德旺：大不了把美国工厂关掉", "url": "https://www.toutiao.com/trending/7631442474728345097/", "source_name": "今日头条", "time_display": "[00:02 ~ 01:31]", "ranks": [20, 16, 8, 5], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 34.15, "summary": "命中「国际关系」模块，综合热度 34.1，累计出现 10 次。"}, {"id": "国际关系-15", "title": "俄罗斯统计局：3月工业产出同比增长2.3%（路透调查预期增长0.9%） 。", "url": "https://flash.jin10.com/detail/20260423000028228800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [1, 3, 9, 14, 17, 19, 22, 25, 29, 32], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 33.62, "summary": "命中「国际关系」模块，综合热度 33.6，累计出现 10 次。"}, {"id": "价格波动-1", "title": "【期货热点追踪】LME铜价上涨，而Comex库存逼近历史高点，高库存下铜价为何还能逆势走强？", "url": "https://flash.jin10.com/detail/20260422235804650800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [2, 4, 10, 15, 18, 20, 23, 26, 30, 33], "is_new": false, "count": 10, "category": "价格波动", "module": "市场情绪与盘面特征", "heat_score": 33.44, "summary": "命中「价格波动」模块，综合热度 33.4，累计出现 10 次。"}, {"id": "社会动荡-2", "title": "【美国原油库存上升，燃油库存下降，总出口量创下新高】金十数据4月22日讯，美国能源信息署（EIA）周三表示，上周美国原油库存有所增加，而汽油和精炼油库存则有所下降，而由于伊朗战争导致的供应中断，美国的总出口量达到了创纪录的水平。美国能源信息署称，在截至4月17日的一周内，原油库存增加了190万桶，达到4.657亿桶。，预期是减少120万桶。EIA称，位于俄克拉荷马州库欣的交货中心的原油库存增加了 806,000 桶。尽管库存意外增加，但油价仍有所上涨。", "url": "https://flash.jin10.com/detail/20260422235612385800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [3, 5, 11, 16, 19, 21, 24, 27, 31, 34], "is_new": false, "count": 10, "category": "社会动荡", "module": "灾害与安全事件", "heat_score": 33.32, "summary": "命中「社会动荡」模块，综合热度 33.3，累计出现 10 次。"}, {"id": "国际关系-16", "title": "特朗普称不延长停火，威胁恢复轰炸伊朗，消息称伊不会参加22日谈判，万斯推迟赴会", "url": "https://wallstreetcn.com/articles/3770527", "source_name": "华尔街见闻", "time_display": "[00:02 ~ 01:31]", "ranks": [7, 6], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 32.7, "summary": "命中「国际关系」模块，综合热度 32.7，累计出现 10 次。"}, {"id": "库存与物流-2", "title": "美国参议员格雷厄姆：霍尔木兹海峡的封锁“将不断扩大”。霍尔木兹海峡封锁可能很快演变为“全球性”事件。", "url": "https://flash.jin10.com/detail/20260422235557302800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [4, 6, 12, 17, 20, 22, 25, 28, 32, 35], "is_new": false, "count": 10, "category": "库存与物流", "module": "产业与供需基本面", "heat_score": 32.2, "summary": "命中「库存与物流」模块，综合热度 32.2，累计出现 10 次。"}, {"id": "价格波动-2", "title": "沪指重返4100，算力硬件爆发，万亿巨头工业富联盘中涨停，恒科指跌超近2%，宁德时代H股跌超5%", "url": "https://wallstreetcn.com/articles/3770568", "source_name": "华尔街见闻", "time_display": "[00:02 ~ 01:31]", "ranks": [8, 7], "is_new": false, "count": 10, "category": "价格波动", "module": "市场情绪与盘面特征", "heat_score": 32.1, "summary": "命中「价格波动」模块，综合热度 32.1，累计出现 10 次。"}, {"id": "库存与物流-3", "title": "据伊朗学生通讯社：伊朗议会国家安全委员会成员表示，霍尔木兹海峡管理方案的关键条款包括以伊朗货币里亚尔收取过境费用。", "url": "https://flash.jin10.com/detail/20260422235505059800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [5, 7, 13, 18, 21, 23, 26, 29, 33, 36], "is_new": false, "count": 10, "category": "库存与物流", "module": "产业与供需基本面", "heat_score": 32.08, "summary": "命中「库存与物流」模块，综合热度 32.1，累计出现 10 次。"}, {"id": "国际关系-17", "title": "朝鲜发声要求日本向中国道歉", "url": "https://www.baidu.com/s?wd=%E6%9C%9D%E9%B2%9C%E5%8F%91%E5%A3%B0%E8%A6%81%E6%B1%82%E6%97%A5%E6%9C%AC%E5%90%91%E4%B8%AD%E5%9B%BD%E9%81%93%E6%AD%89", "source_name": "百度热搜", "time_display": "[00:02 ~ 01:31]", "ranks": [10, 6], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 31.8, "summary": "命中「国际关系」模块，综合热度 31.8，累计出现 10 次。"}, {"id": "国际关系-18", "title": "特朗普延长对伊朗停火 美股三大期指小幅上涨 | 今夜看点", "url": "https://www.cls.cn/detail/2352533", "source_name": "财联社热门", "time_display": "[00:02 ~ 01:31]", "ranks": [8], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 31.8, "summary": "命中「国际关系」模块，综合热度 31.8，累计出现 10 次。"}, {"id": "重点企业-2", "title": "报道：中石化折价出售宁德时代H股，套现金额超7.6亿美元", "url": "https://wallstreetcn.com/articles/3770558", "source_name": "华尔街见闻", "time_display": "[00:02 ~ 01:31]", "ranks": [9, 8], "is_new": false, "count": 10, "category": "重点企业", "module": "企业与行业动态", "heat_score": 31.5, "summary": "命中「重点企业」模块，综合热度 31.5，累计出现 10 次。"}, {"id": "国际关系-19", "title": "朝鲜发声要求日本向中国道歉", "url": "https://s.weibo.com/weibo?q=%23%E6%9C%9D%E9%B2%9C%E5%8F%91%E5%A3%B0%E8%A6%81%E6%B1%82%E6%97%A5%E6%9C%AC%E5%90%91%E4%B8%AD%E5%9B%BD%E9%81%93%E6%AD%89%23", "source_name": "微博", "time_display": "[00:02 ~ 01:31]", "ranks": [7, 15, 18, 19, 8], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 31.2, "summary": "命中「国际关系」模块，综合热度 31.2，累计出现 10 次。"}, {"id": "国际关系-20", "title": "外交部：所谓中国“窃取”知识产权完全是子虚乌有", "url": "https://news.ifeng.com/c/8sX5f1rJc5j", "source_name": "凤凰网", "time_display": "[00:02 ~ 01:31]", "ranks": [9], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 31.2, "summary": "命中「国际关系」模块，综合热度 31.2，累计出现 10 次。"}, {"id": "特定品种板块-2", "title": "“金穹”、“黄金舰队”、AI，五角大楼公布史上最大规模军费预算", "url": "https://www.thepaper.cn/newsDetail_forward_33025322", "source_name": "澎湃新闻", "time_display": "[00:02 ~ 01:31]", "ranks": [9], "is_new": false, "count": 10, "category": "特定品种板块", "module": "市场情绪与盘面特征", "heat_score": 31.2, "summary": "命中「特定品种板块」模块，综合热度 31.2，累计出现 10 次。"}, {"id": "价格波动-3", "title": "WTI原油期货日内扩大至4%，现报93.26美元/桶。", "url": "https://flash.jin10.com/detail/20260422235101349800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [6, 8, 14, 19, 22, 24, 27, 30, 34, 37], "is_new": false, "count": 10, "category": "价格波动", "module": "市场情绪与盘面特征", "heat_score": 30.96, "summary": "命中「价格波动」模块，综合热度 31.0，累计出现 10 次。"}, {"id": "国际关系-21", "title": "研究员：美国制造业再也回不去了", "url": "https://www.toutiao.com/trending/7631576780972756526/", "source_name": "今日头条", "time_display": "[00:02 ~ 01:31]", "ranks": [9, 13, 16, 14, 8, 26, 29], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.86, "summary": "命中「国际关系」模块，综合热度 30.9，累计出现 10 次。"}, {"id": "价格波动-4", "title": "WTI原油期货站上93美元/桶，日内涨3.71%。", "url": "https://flash.jin10.com/detail/20260422234403984800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [7, 9, 15, 20, 23, 25, 28, 31, 35, 38], "is_new": false, "count": 10, "category": "价格波动", "module": "市场情绪与盘面特征", "heat_score": 30.84, "summary": "命中「价格波动」模块，综合热度 30.8，累计出现 10 次。"}, {"id": "国际关系-22", "title": "【佩斯科夫：希望威特科夫和库什纳继续访问俄罗斯】金十数据4月22日讯，当地时间22日，俄罗斯总统新闻秘书佩斯科夫表示，俄方希望美国总统特使威特科夫及特朗普女婿库什纳在调解乌克兰问题框架内能够继续访问莫斯科，但目前没有任何关于其可能到访的具体信息。", "url": "https://flash.jin10.com/detail/20260422234346536800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [8, 10, 16, 21, 24, 26, 29, 32, 36, 39], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.72, "summary": "命中「国际关系」模块，综合热度 30.7，累计出现 10 次。"}, {"id": "特定品种板块-3", "title": "消息人士：里海管道联盟（CPC）混合原油5月出口计划定为180万桶/日，高于4月计划的165万桶/日。哈萨克斯坦拟将原定于5月经“友谊”管道输送至德国的部分原油改道至CPC出口。", "url": "https://flash.jin10.com/detail/20260422233420094800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [9, 11, 17, 22, 25, 27, 30, 33, 37, 40], "is_new": false, "count": 10, "category": "特定品种板块", "module": "市场情绪与盘面特征", "heat_score": 30.66, "summary": "命中「特定品种板块」模块，综合热度 30.7，累计出现 10 次。"}, {"id": "社会动荡-3", "title": "据伊朗伊斯兰共和国广播电视台（IRIB）：伊朗方面赞赏巴基斯坦为结束战争所做的努力。", "url": "https://flash.jin10.com/detail/20260422233217976800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [10, 12, 18, 23, 26, 28, 31, 34, 38, 41], "is_new": false, "count": 10, "category": "社会动荡", "module": "灾害与安全事件", "heat_score": 30.6, "summary": "命中「社会动荡」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-23", "title": "【伊朗对巴方有关延长停火的请求作出回应】金十数据4月22日讯，据伊朗伊斯兰共和国广播电视台（IRIB）援引伊朗外交部发言人称，伊朗对巴基斯坦方面有关停火期限延长的请求作出回应。伊朗方面称，武装部队处于全面戒备状态，随时准备采取果断反击。", "url": "https://flash.jin10.com/detail/20260422233140360800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [11, 13, 19, 24, 27, 29, 32, 35, 39, 42], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-24", "title": "伊朗基本物资供应为何不受封锁影响", "url": "https://www.toutiao.com/trending/7631057559575871515/", "source_name": "今日头条", "time_display": "[00:02 ~ 01:31]", "ranks": [11, 20, 17, 13, 14], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "特定品种板块-4", "title": "收割未成熟小麦作青贮饲料不实", "url": "https://www.baidu.com/s?wd=%E6%94%B6%E5%89%B2%E6%9C%AA%E6%88%90%E7%86%9F%E5%B0%8F%E9%BA%A6%E4%BD%9C%E9%9D%92%E8%B4%AE%E9%A5%B2%E6%96%99%E4%B8%8D%E5%AE%9E", "source_name": "百度热搜", "time_display": "[00:02 ~ 01:31]", "ranks": [11], "is_new": false, "count": 10, "category": "特定品种板块", "module": "市场情绪与盘面特征", "heat_score": 30.6, "summary": "命中「特定品种板块」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "库存与物流-4", "title": "【波罗的海干散货运价指数上涨】金十期货4月22日讯，据外媒报道，波罗的海干散货运价指数连续第14个交易日上涨，因海岬型和超灵便型船运价攀升。波罗的海干散货运价指数较前一交易日上涨35点，或1.3%，至2675点，创2025年12月初以来新高。海岬型船运价指数上涨56点，涨幅1.3%，报4356点，为逾四个月高点。海岬型船日均获利增加505美元，至36002美元。巴拿马型船运价指数下滑2点，或约0.1%，至1971点。巴拿马型船日均获利减少14美元，至17744美元。超灵便型散货船运价指数上涨41点，或2.8%，报1484点。", "url": "https://flash.jin10.com/detail/20260422233103859800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [12, 14, 20, 25, 28, 30, 33, 36, 40, 43], "is_new": false, "count": 10, "category": "库存与物流", "module": "产业与供需基本面", "heat_score": 30.6, "summary": "命中「库存与物流」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-25", "title": "中国空间站将迎来首位外籍航天员", "url": "https://www.baidu.com/s?wd=%E4%B8%AD%E5%9B%BD%E7%A9%BA%E9%97%B4%E7%AB%99%E5%B0%86%E8%BF%8E%E6%9D%A5%E9%A6%96%E4%BD%8D%E5%A4%96%E7%B1%8D%E8%88%AA%E5%A4%A9%E5%91%98", "source_name": "百度热搜", "time_display": "[00:02 ~ 01:31]", "ranks": [19, 17, 13, 12], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-26", "title": "朝鲜发声痛批日本，要求日本向中国道歉", "url": "https://news.ifeng.com/c/8sXRlIytbVi", "source_name": "凤凰网", "time_display": "[00:02 ~ 01:31]", "ranks": [12], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-27", "title": "2名巴基斯坦籍航天员入选，中国空间站将迎来首位外籍航天员", "url": "https://www.thepaper.cn/newsDetail_forward_33027809", "source_name": "澎湃新闻", "time_display": "[00:02 ~ 01:31]", "ranks": [14, 13, 12], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "市场情绪-2", "title": "全球最大避孕套生产商警告", "url": "https://s.weibo.com/weibo?q=%23%E5%85%A8%E7%90%83%E6%9C%80%E5%A4%A7%E9%81%BF%E5%AD%95%E5%A5%97%E7%94%9F%E4%BA%A7%E5%95%86%E8%AD%A6%E5%91%8A%23", "source_name": "微博", "time_display": "[00:02 ~ 01:31]", "ranks": [12, 16, 14], "is_new": false, "count": 10, "category": "市场情绪", "module": "市场情绪与盘面特征", "heat_score": 30.6, "summary": "命中「市场情绪」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "特定品种板块-5", "title": "净利同比下降62%！4天3板太空光伏概念股发布2025年年度报告|盘后公告集锦", "url": "https://www.cls.cn/detail/2352589", "source_name": "财联社热门", "time_display": "[00:02 ~ 01:31]", "ranks": [13, 12], "is_new": false, "count": 10, "category": "特定品种板块", "module": "市场情绪与盘面特征", "heat_score": 30.6, "summary": "命中「特定品种板块」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "特定品种板块-6", "title": "“收割未成熟小麦作青贮饲料”不实", "url": "https://www.toutiao.com/trending/7631201199745957942/", "source_name": "今日头条", "time_display": "[00:02 ~ 01:31]", "ranks": [12], "is_new": false, "count": 10, "category": "特定品种板块", "module": "市场情绪与盘面特征", "heat_score": 30.6, "summary": "命中「特定品种板块」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-28", "title": "据俄新社：俄罗斯方面希望特朗普女婿库什纳和美国特使威特科夫关于乌克兰问题的俄罗斯访问能够继续。", "url": "https://flash.jin10.com/detail/20260422232310479800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [13, 15, 21, 26, 29, 31, 34, 37, 41, 44], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-29", "title": "为什么外国人会普遍相信中国存在所谓「社会信用分」？", "url": "https://www.zhihu.com/question/1989385996874297867", "source_name": "知乎", "time_display": "[00:02 ~ 01:31]", "ranks": [15, 13, 14], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-30", "title": "【伊朗否认举行美伊新谈判 指特朗普“又说谎了”】金十数据4月22日讯，针对美国总统特朗普22日有关美伊可能在24日举行新一轮谈判的言论，伊朗塔斯尼姆通讯社说，特朗普“又说谎了”，伊朗目前尚未决定在24日参加谈判。报道说，特朗普在对《纽约邮报》的“矛盾言论”中表示，第二轮与伊朗的会谈可能就在24日举行。然而，到目前为止，伊朗没有改变不参加谈判的计划。伊朗政府尚未就延长停火时间声明官方立场。", "url": "https://flash.jin10.com/detail/20260422232224031800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [14, 16, 22, 27, 30, 32, 35, 38, 42, 45], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-31", "title": "据伊朗学生通讯社：伊朗外交官表示，伊斯兰堡的谈判本质上是“武装谈判” 。", "url": "https://flash.jin10.com/detail/20260422232141020800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [15, 17, 23, 28, 31, 33, 36, 39, 43, 46], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-32", "title": "伊朗拒谈判,美国延长停火", "url": "https://tieba.baidu.com/hottopic/browse/hottopic?amp%3Btopic_name=%E4%BC%8A%E6%9C%97%E6%8B%92%E8%B0%88%E5%88%A4%2C%E7%BE%8E%E5%9B%BD%E5%BB%B6%E9%95%BF%E5%81%9C%E7%81%AB&topic_id=28353554", "source_name": "贴吧", "time_display": "[00:02 ~ 01:31]", "ranks": [15], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "供给与生产-1", "title": "【机构观点：短期内预计多晶硅期货价格或维持偏强走势】金十期货4月22日讯，中财期货4月22日研报：基本面来看，近期多晶硅期货价格反弹后，部分硅料厂进行套保操作，因此检修计划或推迟。需求方面，出口退税取消政策落地后，近期一体化硅片企业出现减产迹象，预计4月份硅片排产将出现下调。整体来看，4月份多晶硅供应下降幅度或有限，而需求走弱，因此平衡表去库幅度或不及预期。本周多晶硅现货和下游硅片价格跟随上调，关注后续价格上涨能否顺畅传导至电池片和组件。随着价格的反弹，下游持货意愿有所提升，多晶硅现货市场成交好转，短期内预计多晶硅期货价格或维持偏强走势。（本内容及观点仅供参考，不构成任何投资建议）", "url": "https://flash.jin10.com/detail/20260422231915568800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [16, 18, 24, 29, 32, 34, 37, 40, 44, 47], "is_new": false, "count": 10, "category": "供给与生产", "module": "产业与供需基本面", "heat_score": 30.6, "summary": "命中「供给与生产」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-33", "title": "释新闻｜特朗普TACO实录：嘴硬说要打伊朗，身体又按了暂停键", "url": "https://www.thepaper.cn/newsDetail_forward_33025797", "source_name": "澎湃新闻", "time_display": "[00:02 ~ 01:31]", "ranks": [16], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-34", "title": "美伊停火协议到期，双方会再次开战吗？未来两国关系又会如何发展？", "url": "https://www.zhihu.com/question/2030028274953187966", "source_name": "知乎", "time_display": "[00:02 ~ 01:31]", "ranks": [16], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-35", "title": "【欧盟委员会公布“加速欧盟”方案应对能源危机】金十数据4月22日讯，欧盟委员会22日公布名为“加速欧盟”的一揽子行动方案，旨在减轻近期能源价格飙升对欧洲家庭和企业造成的冲击，推动欧盟迈向“能源独立”。根据方案，欧盟委员会将与成员国加强协调，确保补充地下天然气储备和释放紧急石油储备等措施顺利实施。欧盟还将跟踪交通燃料产量、进出口和库存情况，迅速识别潜在短缺风险，使燃料调配措施更具针对性。欧盟委员会提出，可采取收入支持及能源补贴措施，保护消费者及相关行业免受价格飙升的影响。为加快能源转型，欧委会表示，将于今年夏季前提出电气化行动计划，并加强电网系统建设及促进投资等措施。", "url": "https://flash.jin10.com/detail/20260422231543260800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [17, 19, 25, 30, 33, 35, 38, 41, 45, 48], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "需求与消费-1", "title": "【获利了结情绪升温，ICE期棉触及近两年高位后调头下跌】金十期货4月22日讯，据外媒报道，周三，洲际交易所（ICE）期棉下跌逾1%。尽管盘中受原油走强支撑一度触及近两年高位，但随后交易商纷纷获利了结，导致涨幅全数回吐。ICE 7月棉花期货合约下跌0.93美分，跌幅1.15%，报收每磅79.93美分。分析师指出，在近期中东局势引发市场震荡后，此波走势纯属技术性的获利回吐，即便出现回调，预计也将迎来新一轮买盘支撑，棉价后市仍有望走高。原油市场的走强亦对棉价构成底部支撑，因油价上涨抬升了化纤替代品聚酯纤维的采购成本，进而提振天然棉花的需求预期。", "url": "https://flash.jin10.com/detail/20260422231509292800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [18, 20, 26, 31, 34, 36, 39, 42, 46, 49], "is_new": false, "count": 10, "category": "需求与消费", "module": "产业与供需基本面", "heat_score": 30.6, "summary": "命中「需求与消费」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "特定品种板块-7", "title": "海信、格力「真铜实料」之争再有新剧情，格力被指「多三两铜就敢多卖 500 块」，这合理吗？双方到底在争啥？", "url": "https://www.zhihu.com/question/2030189627168875213", "source_name": "知乎", "time_display": "[00:02 ~ 01:31]", "ranks": [18], "is_new": false, "count": 10, "category": "特定品种板块", "module": "市场情绪与盘面特征", "heat_score": 30.6, "summary": "命中「特定品种板块」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-36", "title": "布伦特原油期货价格在美国能源信息署（EIA）库存意外下降后，日内涨幅超过3美元，触及盘中高点。", "url": "https://flash.jin10.com/detail/20260422230904732800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [19, 21, 27, 32, 35, 37, 40, 43, 47, 50], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "库存与物流-5", "title": "【图示】EIA库存周报重要数据一览：美国至4月17日当周，除却战略储备的商业原油库存为2023年6月9日当周以来最高。点击查看。", "url": "https://flash.jin10.com/detail/20260422230828938800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [20, 22, 28, 33, 36, 38, 41, 44, 48, 51], "is_new": false, "count": 10, "category": "库存与物流", "module": "产业与供需基本面", "heat_score": 30.6, "summary": "命中「库存与物流」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-37", "title": "伊朗将恢复国内航班运营", "url": "https://tieba.baidu.com/hottopic/browse/hottopic?amp%3Btopic_name=%E4%BC%8A%E6%9C%97%E5%B0%86%E6%81%A2%E5%A4%8D%E5%9B%BD%E5%86%85%E8%88%AA%E7%8F%AD%E8%BF%90%E8%90%A5&topic_id=28353546", "source_name": "贴吧", "time_display": "[00:02 ~ 01:31]", "ranks": [20], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "特定品种板块-8", "title": "伦铜日内涨幅达2.00%，现报13412.60美元/吨。", "url": "https://flash.jin10.com/detail/20260422230414883800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [21, 23, 29, 34, 37, 39, 42, 45, 49, 52], "is_new": false, "count": 10, "category": "特定品种板块", "module": "市场情绪与盘面特征", "heat_score": 30.6, "summary": "命中「特定品种板块」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "经济数据-1", "title": "【2026年4月22日金十期货夜盘要闻汇总】1. 俄罗斯副总理诺瓦克：德国人拒绝了俄罗斯石油，这意味着他们没问题。俄罗斯将把原定通过“友谊”管道输往德国的石油转向其他路线。俄罗斯将于5月1日起重新调整哈萨克油品运输。俄罗斯可以增加对土耳其的管道天然气供应。2. 据路透社对经济学家的一项调查，因为战争引发的能源冲击再度加剧了本已高涨的通胀，美联储今年至少要等到六个月之后才会降低利率。在4月17日至21日的调查中，103名经济学家中有56位预测，美联储的基准利率将维持在3.50%至3.75%的区间内至九月底，而在3月下旬的调查中，近70%的经济学家预计届时至少会降息一次。3. 周期内聚乙烯生产企业库存压力增加，由挺价出货转为降价出货，下游工厂采购积极性增加；其次因为宏观面不确定性较强，市场对后市信心减弱，积极出货情绪增强，库存顺利向下转移，生产企业库存和社会样本仓库库存均下跌。截至2026年4月22日，中国聚乙烯生产企业样本库存量：59.26万吨，较上期下跌2.07万吨。4. 就在美国总统特朗普表示将延长与伊朗的停火协议的15分钟前，交易员以4.3亿美元押注油价下跌。这是本月第三次，也是冲突以来第四次，在有关伊朗战争的重大公告发布前不久，交易员纷纷做出大规模且精准的石油价格预测性押注。5. 美国阿克西奥斯新闻网站22日援引一名美方消息人士的话报道，美国总统特朗普愿意再给伊朗3至5天停火时间，但“这不会是无限期的”。6. 据纽约邮报报道，美国总统特朗普和巴基斯坦方面的人士周三透露，有关美国与伊朗进行第二轮谈判的“好消息”可能最快于周五出现。巴基斯坦消息人士称，与伊朗的积极调解努力使未来“36至72小时内”举行更多和平谈判的可能性再度出现。当被问及这一可能的突破时，特朗普通过短信回复道：“有可能！。”7. 据知情人士透露，为印度政府进口农作物肥料的印度钾肥有限公司（Indian Potash Ltd）同意以每吨935美元的价格购买150万吨肥料，在西海岸地区交付；另外100万吨将在东海岸交付，单价为每吨959美元。这些报价比印度在冲突爆发前在招标中所同意支付的价格高出近90%。8. EIA报告：04月17日当周美国除却战略储备的商业原油进口607.8万桶/日，较前一周增加78.7万桶/日。除却战略储备的商业原油库存增加192.5万桶至4.66亿桶，增幅0.42%。美国原油产品四周平均供应量为2050.6万桶/日，较去年同期增加3.05%。", "url": "https://flash.jin10.com/detail/20260422230100839800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [22, 24, 30, 35, 38, 40, 43, 46, 50, 53], "is_new": false, "count": 10, "category": "经济数据", "module": "宏观与金融政策", "heat_score": 30.6, "summary": "命中「经济数据」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "社会动荡-4", "title": "南大考研爆雷,220分上985", "url": "https://tieba.baidu.com/hottopic/browse/hottopic?amp%3Btopic_name=%E5%8D%97%E5%A4%A7%E8%80%83%E7%A0%94%E7%88%86%E9%9B%B7%2C220%E5%88%86%E4%B8%8A985&topic_id=28353551", "source_name": "贴吧", "time_display": "[00:02 ~ 01:31]", "ranks": [22], "is_new": false, "count": 10, "category": "社会动荡", "module": "灾害与安全事件", "heat_score": 30.6, "summary": "命中「社会动荡」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-38", "title": "中国第二条跨省地铁来了", "url": "https://www.baidu.com/s?wd=%E4%B8%AD%E5%9B%BD%E7%AC%AC%E4%BA%8C%E6%9D%A1%E8%B7%A8%E7%9C%81%E5%9C%B0%E9%93%81%E6%9D%A5%E4%BA%86", "source_name": "百度热搜", "time_display": "[00:02 ~ 01:31]", "ranks": [25, 24, 22, 28], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "价格波动-5", "title": "截至23:00收盘，国内期货主力合约涨多跌少。20号胶涨超2%，橡胶涨近2%，低硫燃料油（LU）、玻璃、豆一、燃油涨超1%；跌幅方面，丙烯、淀粉、铁矿小幅下跌。", "url": "https://flash.jin10.com/detail/20260422230038962800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [23, 25, 31, 36, 39, 41, 44, 47, 51, 54], "is_new": false, "count": 10, "category": "价格波动", "module": "市场情绪与盘面特征", "heat_score": 30.6, "summary": "命中「价格波动」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "人为事故-1", "title": "江西南昌窒息事故调查报告公布", "url": "https://www.baidu.com/s?wd=%E6%B1%9F%E8%A5%BF%E5%8D%97%E6%98%8C%E7%AA%92%E6%81%AF%E4%BA%8B%E6%95%85%E8%B0%83%E6%9F%A5%E6%8A%A5%E5%91%8A%E5%85%AC%E5%B8%83", "source_name": "百度热搜", "time_display": "[00:02 ~ 01:31]", "ranks": [30, 28, 25, 24], "is_new": false, "count": 10, "category": "人为事故", "module": "灾害与安全事件", "heat_score": 30.6, "summary": "命中「人为事故」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "社会动荡-5", "title": "【美媒：美国延长与伊朗停火不是“无限期”】金十数据4月22日讯，据美国阿克西奥斯新闻网站22日报道，美国总统特朗普宣布的延长停火不会是“无限期的”，他正在给伊朗各方一个“短暂的窗口期”，让他们“团结起来”提出一个统一的方案。报道援引美国消息人士的话说，特朗普愿意将停火再延长3到5天，“让伊朗方面把事情理顺”，但停火不会无限期延长。报道说，美方谈判代表认为与伊朗达成协议仍是可能的。报道还说，特朗普与他的国家安全团队21日下午举行紧急会议，多名美国官员和特朗普的助手都认为，在穷尽所有其他选项之前，特朗普不会重启战争。", "url": "https://flash.jin10.com/detail/20260422230018646800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [24, 26, 32, 37, 40, 42, 45, 48, 52, 55], "is_new": false, "count": 10, "category": "社会动荡", "module": "灾害与安全事件", "heat_score": 30.6, "summary": "命中「社会动荡」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "价格波动-6", "title": "WTI原油日内涨幅达2.00%，现报94.65美元/桶。WTI原油期货日内上涨3%，现报92.37美元/桶。", "url": "https://flash.jin10.com/detail/20260422225312806800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [25, 27, 33, 38, 41, 43, 46, 49, 53, 56], "is_new": false, "count": 10, "category": "价格波动", "module": "市场情绪与盘面特征", "heat_score": 30.6, "summary": "命中「价格波动」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-39", "title": "美国财长贝森特：货币互换协议将有利于阿联酋和美国。", "url": "https://flash.jin10.com/detail/20260422225251530800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [26, 28, 34, 39, 42, 44, 47, 50, 54, 57], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-40", "title": "美国财长贝森特：许多美国海湾盟友已请求互换额度。", "url": "https://flash.jin10.com/detail/20260422225200384800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [27, 29, 35, 40, 43, 45, 48, 51, 55, 58], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-41", "title": "美国启动一万亿元退关税", "url": "https://tieba.baidu.com/hottopic/browse/hottopic?amp%3Btopic_name=%E7%BE%8E%E5%9B%BD%E5%90%AF%E5%8A%A8%E4%B8%80%E4%B8%87%E4%BA%BF%E5%85%83%E9%80%80%E5%85%B3%E7%A8%8E&topic_id=28353548", "source_name": "贴吧", "time_display": "[00:02 ~ 01:31]", "ranks": [27], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "库存与物流-6", "title": "【俄罗斯4月小麦出口量或达380万吨】金十期货4月22日讯，据外媒报道，俄罗斯农业运输公司（Rusagrotrans）分析中心表示，俄罗斯4月份小麦出口量可能达到380万吨。这一数字高于此前预测的370万吨。该中心向国际文传电讯社表示，这一最新预估值是2025年4月出口量（约240万吨）的1.6倍，也高于过去五年同期300万吨的平均出口水平。据该中心数据称，截至4月20日，已发运小麦约240万吨。", "url": "https://flash.jin10.com/detail/20260422225004693800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [28, 30, 36, 41, 44, 46, 49, 52, 56, 59], "is_new": false, "count": 10, "category": "库存与物流", "module": "产业与供需基本面", "heat_score": 30.6, "summary": "命中「库存与物流」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-42", "title": "美国能源信息署（EIA）：美国墨西哥湾沿岸的蒸馏燃料油库存上周下降至2025年3月以来的最低水平。", "url": "https://flash.jin10.com/detail/20260422224445619800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [30, 32, 38, 43, 46, 48, 51, 54, 58, 61], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-43", "title": "美国财长贝森特：上周有10个国家主动与我接触，请求延长石油制裁豁免措施。", "url": "https://flash.jin10.com/detail/20260422224124588800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [31, 33, 39, 44, 47, 49, 52, 55, 59, 62], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-44", "title": "美国贸易代表格里尔：非常关注美国农场投入成本问题。", "url": "https://flash.jin10.com/detail/20260422224048284800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [32, 34, 40, 45, 48, 50, 53, 56, 60, 63], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-45", "title": "美国财长贝森特：如果没有这一措施，油价可能会达到（每桶）150美元。", "url": "https://flash.jin10.com/detail/20260422224026436800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [33, 35, 41, 46, 49, 51, 54, 57, 61, 64], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-46", "title": "美国财长贝森特：美国财政部通过解除（伊朗）制裁，能够释放超过2.5亿桶水上石油，如果没有这一措施，价格将会更高。", "url": "https://flash.jin10.com/detail/20260422223934039800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [34, 36, 42, 47, 50, 52, 55, 58, 62, 65], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-47", "title": "美国贸易代表格里尔：我们致力于与国会合作，推动非洲增长与机会法案（AGOA）的多年度重新授权，这在我们的议程中处于首位。", "url": "https://flash.jin10.com/detail/20260422223908058800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [35, 37, 43, 48, 51, 53, 56, 59, 63, 66], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-48", "title": "美国财长贝森特：伊朗因制裁解除可获140亿美元收益的说法“纯属无稽之谈”。", "url": "https://flash.jin10.com/detail/20260422223837861800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [36, 38, 44, 49, 52, 54, 57, 60, 64, 67], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-49", "title": "美国贸易代表格里尔：如果加拿大不参与更广泛的原产地规则，那么可能需要其他边境管控措施。", "url": "https://flash.jin10.com/detail/20260422223645573800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [37, 39, 45, 50, 53, 55, 58, 61, 65, 68], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "特定品种板块-9", "title": "加蓬石油与天然气部长：我们预计将在未来四到六个月内与英国石油(BP.N)和埃克森美孚石油(XOM.N)签署生产共享合同。", "url": "https://flash.jin10.com/detail/20260422223638318800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [38, 40, 46, 51, 54, 56, 59, 62, 66, 69], "is_new": false, "count": 10, "category": "特定品种板块", "module": "市场情绪与盘面特征", "heat_score": 30.6, "summary": "命中「特定品种板块」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "国际关系-50", "title": "美国贸易代表格里尔：加拿大正在加倍推进全球化。", "url": "https://flash.jin10.com/detail/20260422223606679800", "source_name": "金十期货", "time_display": "[00:02 ~ 01:31]", "ranks": [39, 41, 47, 52, 55, 57, 60, 63, 67, 70], "is_new": false, "count": 10, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 30.6, "summary": "命中「国际关系」模块，综合热度 30.6，累计出现 10 次。"}, {"id": "社会动荡-6", "title": "【伊朗外长感谢斯里兰卡协助船只救援 就双边关系进行磋商】金十数据4月23日讯，伊朗外交部长阿拉格齐与斯里兰卡外交部长赫拉特于周三下午通电话。通话中，伊朗外长对斯里兰卡政府在此次“代纳号”（Dena）驱逐舰船员救援行动中付出的努力，以及在将“代纳号”驱逐舰和伊朗船只上英勇烈士的遗体运送回国过程中提供的协助表示感谢。伊朗外长在描述美国和犹太复国主义政权对伊朗犯下的罪行时，称袭击“代纳号”驱逐舰是美国犯下的“前所未有的战争罪”，并强调伊朗民族永远不会忘记这一公然违反国际人道主义法基本原则和1949年《日内瓦公约》的罪行。伊朗将动用一切法律和政治能力，追究这一战争罪行的肇事者和指挥者的责任并予以惩罚。伊朗与斯里兰卡两国外长在通话中还就加强双边关系进行了磋商。", "url": "https://flash.jin10.com/detail/20260423000835938800", "source_name": "金十期货", "time_display": "[00:10 ~ 01:31]", "ranks": [1, 7, 12, 15, 17, 20, 23, 27, 30], "is_new": false, "count": 9, "category": "社会动荡", "module": "灾害与安全事件", "heat_score": 29.51, "summary": "命中「社会动荡」模块，综合热度 29.5，累计出现 9 次。"}, {"id": "国际关系-51", "title": "俄罗斯统计局：3月工业生产者出厂价格指数同比下降1.8%，环比上涨2.0%。", "url": "https://flash.jin10.com/detail/20260423000226216800", "source_name": "金十期货", "time_display": "[00:10 ~ 01:31]", "ranks": [2, 8, 13, 16, 18, 21, 24, 28, 31], "is_new": false, "count": 9, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 29.38, "summary": "命中「国际关系」模块，综合热度 29.4，累计出现 9 次。"}, {"id": "国际关系-52", "title": "乒乓球在美国火起来了", "url": "https://s.weibo.com/weibo?q=%E4%B9%92%E4%B9%93%E7%90%83%E5%9C%A8%E7%BE%8E%E5%9B%BD%E7%81%AB%E8%B5%B7%E6%9D%A5%E4%BA%86", "source_name": "微博", "time_display": "[00:10 ~ 01:31]", "ranks": [10, 27], "is_new": false, "count": 9, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 27.6, "summary": "命中「国际关系」模块，综合热度 27.6，累计出现 9 次。"}, {"id": "国际关系-53", "title": "伊朗代表团亮相亚沙会开幕式", "url": "https://www.toutiao.com/trending/7631156210322407467/", "source_name": "今日头条", "time_display": "[00:10 ~ 01:31]", "ranks": [28, 22, 19, 17, 16], "is_new": false, "count": 9, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 27.6, "summary": "命中「国际关系」模块，综合热度 27.6，累计出现 9 次。"}, {"id": "人为事故-2", "title": "雪佛龙(CVX.N)：4月22日，位于得克萨斯州帕萨迪纳市帕萨迪纳炼油厂红崖罐区的一个原油储罐发生了泄漏事故。现场已得到控制，清理工作正在进行中。尚未报告伤亡或外部影响，正在加强环境监测。", "url": "https://flash.jin10.com/detail/20260423001911473800", "source_name": "金十期货", "time_display": "[00:21 ~ 01:31]", "ranks": [1, 6, 9, 11, 14, 17, 21, 24], "is_new": false, "count": 8, "category": "人为事故", "module": "灾害与安全事件", "heat_score": 26.9, "summary": "命中「人为事故」模块，综合热度 26.9，累计出现 8 次。"}, {"id": "人为事故-3", "title": "【以军空袭黎南部致两名真主党成员死亡】金十数据4月23日讯，据黎巴嫩国家通讯社22日报道，以色列当天对黎巴嫩南部发动空袭，造成两人死亡，两名记者被困，其中一人获救撤离。报道称，以军当天在黎南部提里镇袭击一辆车，造成车内两人死亡。黎安全部门消息人士证实，两名死者均为真主党成员。", "url": "https://flash.jin10.com/detail/20260423001821698800", "source_name": "金十期货", "time_display": "[00:21 ~ 01:31]", "ranks": [2, 7, 10, 12, 15, 18, 22, 25], "is_new": false, "count": 8, "category": "人为事故", "module": "灾害与安全事件", "heat_score": 26.68, "summary": "命中「人为事故」模块，综合热度 26.7，累计出现 8 次。"}, {"id": "国际关系-54", "title": "乌克兰总统泽连斯基：在我的谈判中，除了顿涅茨克地区、卢甘斯克地区、顿巴斯、乌克兰领土之外，没有其他条件。有相应的文件对此作出了明确规定。", "url": "https://flash.jin10.com/detail/20260423001613317800", "source_name": "金十期货", "time_display": "[00:21 ~ 01:31]", "ranks": [3, 8, 11, 13, 16, 19, 23, 26], "is_new": false, "count": 8, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 26.52, "summary": "命中「国际关系」模块，综合热度 26.5，累计出现 8 次。"}, {"id": "国际关系-55", "title": "乌克兰总统泽连斯基：乌克兰与美国谈判代表昨日举行了会谈。", "url": "https://flash.jin10.com/detail/20260423001535430800", "source_name": "金十期货", "time_display": "[00:21 ~ 01:31]", "ranks": [4, 9, 12, 14, 17, 20, 24, 27], "is_new": false, "count": 8, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 26.38, "summary": "命中「国际关系」模块，综合热度 26.4，累计出现 8 次。"}, {"id": "国际关系-56", "title": "乌克兰总统泽连斯基：乌克兰随时准备以任何形式与俄罗斯进行谈判。", "url": "https://flash.jin10.com/detail/20260423001511406800", "source_name": "金十期货", "time_display": "[00:21 ~ 01:31]", "ranks": [5, 10, 13, 15, 18, 21, 25, 28], "is_new": false, "count": 8, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 26.23, "summary": "命中「国际关系」模块，综合热度 26.2，累计出现 8 次。"}, {"id": "国际关系-57", "title": "美国贸易代表格里尔：美国需要通过美墨加协定（USMCA）谈判或采取执法行动解决与加拿大的乳制品问题。", "url": "https://flash.jin10.com/detail/20260423002952255800", "source_name": "金十期货", "time_display": "[00:31 ~ 01:31]", "ranks": [1, 4, 6, 9, 12, 16, 19], "is_new": false, "count": 7, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 26.17, "summary": "命中「国际关系」模块，综合热度 26.2，累计出现 7 次。"}, {"id": "人为事故-4", "title": "黎巴嫩高级军事官员表示，军方通过美国主导的联络机制请求以色列军方允许救援人员救助受伤的记者。", "url": "https://flash.jin10.com/detail/20260423002612293800", "source_name": "金十期货", "time_display": "[00:31 ~ 01:31]", "ranks": [2, 5, 7, 10, 13, 17, 20], "is_new": false, "count": 7, "category": "人为事故", "module": "灾害与安全事件", "heat_score": 25.83, "summary": "命中「人为事故」模块，综合热度 25.8，累计出现 7 次。"}, {"id": "人为事故-5", "title": "黎巴嫩高级军事官员表示，以色列无人机在泰里（Tayri）向试图从废墟中救援受伤记者的救援人员投掷了手榴弹。", "url": "https://flash.jin10.com/detail/20260423002530264800", "source_name": "金十期货", "time_display": "[00:31 ~ 01:31]", "ranks": [3, 6, 8, 11, 14, 18, 21], "is_new": false, "count": 7, "category": "人为事故", "module": "灾害与安全事件", "heat_score": 24.14, "summary": "命中「人为事故」模块，综合热度 24.1，累计出现 7 次。"}, {"id": "国际关系-58", "title": "【预测市场显示 特朗普面临弹劾的风险持续攀升】金十数据4月23日讯，预测市场数据显示，特朗普在2028年1月之前遭到弹劾的概率为68%，这一几率自去年11月的约30%以来持续攀升。这一变化表明，市场对特朗普未来遭遇政治麻烦的预期正在升温，不过最终结果仍存在不确定性。", "url": "https://flash.jin10.com/detail/20260423002437236800", "source_name": "金十期货", "time_display": "[00:31 ~ 01:31]", "ranks": [4, 7, 9, 12, 15, 19, 22], "is_new": false, "count": 7, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 23.89, "summary": "命中「国际关系」模块，综合热度 23.9，累计出现 7 次。"}, {"id": "国际关系-59", "title": "【美共和党参议员：若和平协议迟迟未果，美国或对伊朗动武】金十数据4月23日讯，美国共和党参议员罗杰·马歇尔称，如果无法尽快达成和平协议，美国可能会对伊朗进行军事干预。他认为，历任美国总统都曾面临类似抉择，并指出伊朗内部分歧，加之美国的压力与封锁措施，正在削弱德黑兰的地位。马歇尔补充说，他相信特朗普总统的策略，并表示目标仍是尽快实现和平。", "url": "https://flash.jin10.com/detail/20260423003639483800", "source_name": "金十期货", "time_display": "[00:41 ~ 01:31]", "ranks": [2, 4, 7, 10, 14, 17], "is_new": false, "count": 6, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 23.63, "summary": "命中「国际关系」模块，综合热度 23.6，累计出现 6 次。"}, {"id": "国际关系-60", "title": "欧盟启动黑山入盟条约起草工作。", "url": "https://flash.jin10.com/detail/20260423002217152800", "source_name": "金十期货", "time_display": "[00:31 ~ 01:31]", "ranks": [5, 8, 10, 13, 16, 20, 23], "is_new": false, "count": 7, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 23.63, "summary": "命中「国际关系」模块，综合热度 23.6，累计出现 7 次。"}, {"id": "国际关系-61", "title": "伊朗议会议长卡利巴夫：全面停火只有在不被海上封锁和“挟持世界经济”的行为违反的情况下才有意义。", "url": "https://flash.jin10.com/detail/20260423004407047800", "source_name": "金十数据", "time_display": "[00:50 ~ 01:31]", "ranks": [1, 22], "is_new": false, "count": 5, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 23.3, "summary": "命中「国际关系」模块，综合热度 23.3，累计出现 5 次。"}, {"id": "国际关系-62", "title": "据耶路撒冷邮报：以色列官员已接到美方官员通报，特朗普政府已将停火谈判的最后期限延长至周日。", "url": "https://flash.jin10.com/detail/20260423011502024800", "source_name": "金十数据", "time_display": "[01:21 ~ 01:31]", "ranks": [1], "is_new": false, "count": 2, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 22.0, "summary": "命中「国际关系」模块，综合热度 22.0，累计出现 2 次。"}, {"id": "库存与物流-7", "title": "【卡利巴夫：公然违反停火的情况下 重开霍尔木兹海峡“不可能”】金十数据4月23日讯，伊朗议会议长卡利巴夫表示，全面停火只有在不被海上封锁和“挟持世界经济”的行为违反的情况下才有意义。在如此公然违反停火的情况下，重新开放霍尔木兹海峡是不可能的。他们未能通过军事侵略实现目标，也绝不会通过霸凌得逞。唯一的出路是承认伊朗民族的权利。", "url": "https://flash.jin10.com/detail/20260423004430590800", "source_name": "金十期货", "time_display": "[00:50 ~ 01:31]", "ranks": [1, 4, 7, 11, 14], "is_new": false, "count": 5, "category": "库存与物流", "module": "产业与供需基本面", "heat_score": 21.76, "summary": "命中「库存与物流」模块，综合热度 21.8，累计出现 5 次。"}, {"id": "国际关系-63", "title": "中国军舰视觉大片", "url": "https://search.bilibili.com/all?keyword=%E4%B8%AD%E5%9B%BD%E5%86%9B%E8%88%B0%E8%A7%86%E8%A7%89%E5%A4%A7%E7%89%87", "source_name": "bilibili 热搜", "time_display": "[00:31 ~ 01:31]", "ranks": [12, 13, 10], "is_new": false, "count": 7, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 21.6, "summary": "命中「国际关系」模块，综合热度 21.6，累计出现 7 次。"}, {"id": "国际关系-64", "title": "伊朗议会议长卡利巴夫：全面停火只有在不被海上封锁和“挟持世界经济”的行为违反的情况下才有意义。", "url": "https://flash.jin10.com/detail/20260423004407047800", "source_name": "金十期货", "time_display": "[00:50 ~ 01:31]", "ranks": [2, 5, 8, 12, 15], "is_new": false, "count": 5, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 21.4, "summary": "命中「国际关系」模块，综合热度 21.4，累计出现 5 次。"}, {"id": "国际关系-65", "title": "美国贸易代表格里尔：可能需要对加拿大对待美国葡萄酒和烈酒的做法采取执法行动。", "url": "https://flash.jin10.com/detail/20260423011330314800", "source_name": "金十数据", "time_display": "[01:21 ~ 01:31]", "ranks": [2], "is_new": false, "count": 2, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 21.4, "summary": "命中「国际关系」模块，综合热度 21.4，累计出现 2 次。"}, {"id": "国际关系-66", "title": "据英国金融时报：欧盟重新考虑对北极石油和天然气开采的反对立场。", "url": "https://flash.jin10.com/detail/20260423011952237800", "source_name": "金十期货", "time_display": "[01:21 ~ 01:31]", "ranks": [1, 4], "is_new": false, "count": 2, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 21.1, "summary": "命中「国际关系」模块，综合热度 21.1，累计出现 2 次。"}, {"id": "国际关系-67", "title": "美国贸易代表格里尔：加拿大方面迄今尚未承诺改变乳制品贸易。", "url": "https://flash.jin10.com/detail/20260423011218197800", "source_name": "金十数据", "time_display": "[01:21 ~ 01:31]", "ranks": [3], "is_new": false, "count": 2, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 20.8, "summary": "命中「国际关系」模块，综合热度 20.8，累计出现 2 次。"}, {"id": "国际关系-68", "title": "据耶路撒冷邮报：以色列官员已接到美方官员通报，特朗普政府已将停火谈判的最后期限延长至周日。", "url": "https://flash.jin10.com/detail/20260423011502024800", "source_name": "金十期货", "time_display": "[01:21 ~ 01:31]", "ranks": [2, 5], "is_new": false, "count": 2, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 20.5, "summary": "命中「国际关系」模块，综合热度 20.5，累计出现 2 次。"}, {"id": "经济数据-2", "title": "美债收益率上升，2年期收益率上升2.3个基点至3.802%；10年期收益率上涨1个基点至4.302%。", "url": "https://flash.jin10.com/detail/20260423005813429800", "source_name": "金十期货", "time_display": "[01:02 ~ 01:31]", "ranks": [1, 4, 8, 11], "is_new": false, "count": 4, "category": "经济数据", "module": "宏观与金融政策", "heat_score": 20.15, "summary": "命中「经济数据」模块，综合热度 20.1，累计出现 4 次。"}, {"id": "国际组织与报告-1", "title": "如何评价 Deepseek 于 2026 年 4 月 22 日上线的新模型 api？", "url": "https://www.zhihu.com/question/2030308965683291022", "source_name": "知乎", "time_display": "[00:41 ~ 01:31]", "ranks": [8, 7], "is_new": false, "count": 6, "category": "国际组织与报告", "module": "地缘政治与国际贸易", "heat_score": 20.1, "summary": "命中「国际组织与报告」模块，综合热度 20.1，累计出现 6 次。"}, {"id": "社会动荡-7", "title": "【五角大楼：清除霍尔木兹海峡水雷或需6个月】金十数据4月23日讯，五角大楼已通知国会，彻底清除伊朗军方在霍尔木兹海峡布设的水雷可能需要6个月时间，而且任何此类行动在美国与伊朗的战争结束前都不太可能进行。这一评估意味着冲突的经济影响可能会延续到今年晚些时候或更久。据透露，一名国防部高级官员周二在向众议院军事委员会成员举行的机密简报会上分享了这个此前未被报道过的估计时间。其中两位人士表示，这一时间表令民主党和共和党人都感到沮丧，这或许是最明确的信号，表明即使在达成任何和平协议之后，汽油和石油价格仍可能长期保持高位。除了经济影响之外，这样的结果也可能对美国国内政治，尤其是对共和党人，产生重大影响，因为11月的中期选举日益临近。议员们被告知，伊朗可能在霍尔木兹海峡及其周边地区布设了20枚或更多的水雷。其中一些水雷是使用GPS技术远程布设的，这使得美军难以探测到正在布设的水雷。据信，其他水雷是由伊朗军队使用小型船只布设的。白宫和五角大楼周三均未回应有关军方关于扫雷可能需要多长时间的评估的提问。美国中央司令部拒绝置评。", "url": "https://flash.jin10.com/detail/20260423005714736800", "source_name": "金十期货", "time_display": "[01:02 ~ 01:31]", "ranks": [2, 5, 9, 12], "is_new": false, "count": 4, "category": "社会动荡", "module": "灾害与安全事件", "heat_score": 19.7, "summary": "命中「社会动荡」模块，综合热度 19.7，累计出现 4 次。"}, {"id": "国际关系-69", "title": "德国外交部长：伊朗必须小心，不要错失在伊斯兰堡与美国谈判的机会。", "url": "https://flash.jin10.com/detail/20260423010648136800", "source_name": "金十期货", "time_display": "[01:11 ~ 01:31]", "ranks": [1, 5, 8], "is_new": false, "count": 3, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 19.47, "summary": "命中「国际关系」模块，综合热度 19.5，累计出现 3 次。"}, {"id": "国际关系-70", "title": "据纽约时报：巴基斯坦收到伊朗发出的恢复面对面会谈的积极信号。", "url": "https://flash.jin10.com/detail/20260423012512387800", "source_name": "金十期货", "time_display": "01:31", "ranks": [1], "is_new": true, "count": 1, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 19.0, "summary": "命中「国际关系」模块，综合热度 19.0，累计出现 1 次。"}, {"id": "国际关系-71", "title": "【宁德时代：钠离子电池今年四季度将实现量产】宁德时代宣布，钠离子电池今年四季度将实现量产。钠离子电池成本底线更低，碳酸钠价格仅为碳酸锂几十分之一，供给充裕稳定；不依赖锂/钴，正极不含锂和钴，彻底绕开两大战略资源瓶颈；宽温域安全，工作温度-50℃至+80℃，低温性能远优于锂电；产线兼容，可复用现有锂电池生产设备，切换成本极低。2026年4月，中国动力电池全球市占率首次突破70%，宁德时代A+H股总市值突破2万亿元，成为中国首家市值突破2万亿元的科技企业。（央视新闻）", "url": "https://finance.sina.com.cn/7x24/notification.shtml?id=4833867", "source_name": "新浪财经 7x24", "time_display": "01:31", "ranks": [1], "is_new": true, "count": 1, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 19.0, "summary": "命中「国际关系」模块，综合热度 19.0，累计出现 1 次。"}, {"id": "库存与物流-8", "title": "调查显示，美国能源信息署（EIA）周四公布的报告料显示上周美国天然气库存增加940亿立方英尺。", "url": "https://finance.sina.com.cn/7x24/notification.shtml?id=4833866", "source_name": "新浪财经 7x24", "time_display": "01:31", "ranks": [2], "is_new": true, "count": 1, "category": "库存与物流", "module": "产业与供需基本面", "heat_score": 18.4, "summary": "命中「库存与物流」模块，综合热度 18.4，累计出现 1 次。"}, {"id": "国际关系-72", "title": "【以总理称以方已准备好应对所有情况】金十数据4月23日讯，当地时间4月22日晚，以色列总理内塔尼亚胡在其社交媒体账号上发文表示，以色列已准备好应对所有情况——无论在防御还是进攻方面。同日，以色列国防军总参谋长扎米尔表示，鉴于伊朗和黎巴嫩的停火协议依然脆弱，目前以色列军队仍保持高度戒备，并已做好重返所有战线作战的准备。扎米尔说，“此刻，我们正在黎巴嫩展开激烈战斗，以加强北部地区的防御”。他强调，目前，以色列国防军保持高度戒备，随时准备在所有战线重返战场。", "url": "https://flash.jin10.com/detail/20260423012406459800", "source_name": "金十期货", "time_display": "01:31", "ranks": [2], "is_new": true, "count": 1, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 18.4, "summary": "命中「国际关系」模块，综合热度 18.4，累计出现 1 次。"}, {"id": "库存与物流-9", "title": "【巴基斯坦从伊朗方面收到重启面对面会谈的积极信号】周三，巴基斯坦官员依旧保持乐观，认为即便伊朗在霍尔木兹海峡扣押两艘货船、为巴方斡旋美伊长期和平的努力新增阻碍，巴基斯坦仍能促成美伊重返谈判桌。 巴基斯坦总理夏巴兹・谢里夫于当日会见了伊朗驻巴大使。一名知晓会谈内情的巴方官员透露，美伊第二轮谈判有望在未来数日内举行。曾历任巴基斯坦驻美、驻英大使、且知悉此次外交斡旋内情的马利哈・洛迪表示：“此次停火留出了相应空间，巴基斯坦认为该空间足以让外交谈判进程重启，双方均未拒绝会谈。”", "url": "https://finance.sina.com.cn/7x24/notification.shtml?id=4833864", "source_name": "新浪财经 7x24", "time_display": "01:31", "ranks": [3], "is_new": true, "count": 1, "category": "库存与物流", "module": "产业与供需基本面", "heat_score": 17.8, "summary": "命中「库存与物流」模块，综合热度 17.8，累计出现 1 次。"}, {"id": "国际关系-73", "title": "【以外长称以色列和黎巴嫩“没有重大分歧”】金十数据4月23日讯，当地时间4月22日，在以色列和黎巴嫩第二轮大使级会谈即将举行之前，以色列外长萨尔在一次公开讲话中表示，以色列与黎巴嫩之间“没有重大分歧”。他说，“我们做出了一个历史性的决定，在40多年后与黎巴嫩进行直接谈判”。萨尔表示，以色列与黎巴嫩之间并无任何重大分歧，两国之间存在一些“小的边界争端”，这些争端是可以解决的。两国和平与关系正常化的最大障碍只有一个——真主党。此前有消息称，以色列和黎巴嫩第二轮大使级会谈将于本月23日在美国国务院举行。", "url": "https://flash.jin10.com/detail/20260423012122563800", "source_name": "金十期货", "time_display": "01:31", "ranks": [3], "is_new": true, "count": 1, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 17.8, "summary": "命中「国际关系」模块，综合热度 17.8，累计出现 1 次。"}, {"id": "国际关系-74", "title": "美国卫生部长小罗伯特・F・肯尼迪周三对参议员表示，他并无异议，将在本周末前向参议院公开其盟友戴维・盖尔所持有的美国卫生与公众服务部相关合同。", "url": "https://finance.sina.com.cn/7x24/notification.shtml?id=4833863", "source_name": "新浪财经 7x24", "time_display": "01:31", "ranks": [4], "is_new": true, "count": 1, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 17.2, "summary": "命中「国际关系」模块，综合热度 17.2，累计出现 1 次。"}, {"id": "库存与物流-10", "title": "据华盛顿邮报：官员们告诉国会，清除霍尔木兹海峡的水雷可能需要6个月时间。", "url": "https://flash.jin10.com/detail/20260423005327741800", "source_name": "金十期货", "time_display": "[01:02 ~ 01:31]", "ranks": [3, 6, 10, 13], "is_new": false, "count": 4, "category": "库存与物流", "module": "产业与供需基本面", "heat_score": 16.75, "summary": "命中「库存与物流」模块，综合热度 16.8，累计出现 4 次。"}, {"id": "国际关系-75", "title": "【乌总统称在伊朗问题解决前 乌克兰谈判不会取得任何进展】当地时间22日，总台记者获悉，乌克兰总统泽连斯基在接受美国一家媒体采访时表示，他对与俄罗斯停火持开放态度，但认为在伊朗问题解决之前，或在美国、以色列和伊朗之间达成某种根本性停火之前，乌克兰谈判不会取得任何进展。泽连斯基承认，伊朗战事转移了公众对俄乌冲突的注意力。（央视新闻）", "url": "https://finance.sina.com.cn/7x24/notification.shtml?id=4833862", "source_name": "新浪财经 7x24", "time_display": "01:31", "ranks": [5], "is_new": true, "count": 1, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 16.6, "summary": "命中「国际关系」模块，综合热度 16.6，累计出现 1 次。"}, {"id": "经济数据-3", "title": "美国20年期国债收益率在拍卖后上升，最新上涨0.5个基点至4.886%。", "url": "https://flash.jin10.com/detail/20260423010420299800", "source_name": "金十期货", "time_display": "[01:11 ~ 01:31]", "ranks": [2, 6, 9], "is_new": false, "count": 3, "category": "经济数据", "module": "宏观与金融政策", "heat_score": 15.53, "summary": "命中「经济数据」模块，综合热度 15.5，累计出现 3 次。"}, {"id": "国际关系-76", "title": "美国贸易代表格里尔：愿意考虑使用贸易工具来保护美国糖生产商。", "url": "https://flash.jin10.com/detail/20260423010357857800", "source_name": "金十期货", "time_display": "[01:11 ~ 01:31]", "ranks": [3, 7, 10], "is_new": false, "count": 3, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 14.93, "summary": "命中「国际关系」模块，综合热度 14.9，累计出现 3 次。"}, {"id": "国际关系-77", "title": "美国贸易代表格里尔：可能需要对加拿大对待美国葡萄酒和烈酒的做法采取执法行动。", "url": "https://flash.jin10.com/detail/20260423011330314800", "source_name": "金十期货", "time_display": "[01:21 ~ 01:31]", "ranks": [3, 6], "is_new": false, "count": 2, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 14.9, "summary": "命中「国际关系」模块，综合热度 14.9，累计出现 2 次。"}, {"id": "国际关系-78", "title": "美国众议员沃特斯要求贝森特审查美国外资投资委员会（CFIUS）涉及铜矿土地转让事宜。", "url": "https://finance.sina.com.cn/7x24/notification.shtml?id=4833856", "source_name": "新浪财经 7x24", "time_display": "[01:21 ~ 01:31]", "ranks": [1, 9], "is_new": false, "count": 2, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 14.6, "summary": "命中「国际关系」模块，综合热度 14.6，累计出现 2 次。"}, {"id": "国际关系-79", "title": "美国贸易代表格里尔：加拿大方面迄今尚未承诺改变乳制品贸易。", "url": "https://flash.jin10.com/detail/20260423011218197800", "source_name": "金十期货", "time_display": "[01:21 ~ 01:31]", "ranks": [4, 7], "is_new": false, "count": 2, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 14.3, "summary": "命中「国际关系」模块，综合热度 14.3，累计出现 2 次。"}, {"id": "国际关系-80", "title": "欧盟考虑放弃对北极地区新的油气钻探项目的反对意见。", "url": "https://finance.sina.com.cn/7x24/notification.shtml?id=4833855", "source_name": "新浪财经 7x24", "time_display": "[01:21 ~ 01:31]", "ranks": [2, 10], "is_new": false, "count": 2, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 14.0, "summary": "命中「国际关系」模块，综合热度 14.0，累计出现 2 次。"}, {"id": "国际关系-81", "title": "谢锋：中国大蒜做梦没想到被列为威胁", "url": "https://www.toutiao.com/trending/7631348375794896393/", "source_name": "今日头条", "time_display": "[00:41 ~ 01:31]", "ranks": [8, 7, 9], "is_new": false, "count": 4, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 13.8, "summary": "命中「国际关系」模块，综合热度 13.8，累计出现 4 次。"}, {"id": "国际关系-82", "title": "欧盟正重新考虑其对北极油气钻探的反对立场。", "url": "https://finance.sina.com.cn/7x24/notification.shtml?id=4833850", "source_name": "新浪财经 7x24", "time_display": "[01:21 ~ 01:31]", "ranks": [4, 13], "is_new": false, "count": 2, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 13.4, "summary": "命中「国际关系」模块，综合热度 13.4，累计出现 2 次。"}, {"id": "国际关系-83", "title": "伊朗绞死摩萨德分支机构骨干成员", "url": "https://www.toutiao.com/trending/7631494799362641446/", "source_name": "今日头条", "time_display": "[00:41 ~ 01:31]", "ranks": [24, 30, 18], "is_new": false, "count": 4, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 12.6, "summary": "命中「国际关系」模块，综合热度 12.6，累计出现 4 次。"}, {"id": "国际关系-84", "title": "中国第二条跨省地铁", "url": "https://s.weibo.com/weibo?q=%23%E4%B8%AD%E5%9B%BD%E7%AC%AC%E4%BA%8C%E6%9D%A1%E8%B7%A8%E7%9C%81%E5%9C%B0%E9%93%81%23", "source_name": "微博", "time_display": "[00:10 ~ 01:31]", "ranks": [20, 25, 26], "is_new": false, "count": 4, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 12.6, "summary": "命中「国际关系」模块，综合热度 12.6，累计出现 4 次。"}, {"id": "国际关系-85", "title": "德国外交部长：伊朗必须小心，不要错失在伊斯兰堡与美国谈判的机会。", "url": "https://flash.jin10.com/detail/20260423010648136800", "source_name": "金十数据", "time_display": "[01:21 ~ 01:31]", "ranks": [6], "is_new": false, "count": 2, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 9.0, "summary": "命中「国际关系」模块，综合热度 9.0，累计出现 2 次。"}, {"id": "库存与物流-11", "title": "【伊朗议长：取消海上封锁 全面停火才有意义】伊朗伊斯兰议会议长卡利巴夫22日在社交媒体上说，只有在不以海上封锁和“劫持”世界经济为前提、且以色列在各条战线停战的情况下，全面停火才有意义。卡利巴夫还表示，若严重违反停火协议，重新开放霍尔木兹海峡是不可能的。伊朗政府当天对美国提出延长与伊朗停火期限未作直接回应。（新华社）", "url": "https://finance.sina.com.cn/7x24/notification.shtml?id=4833847", "source_name": "新浪财经 7x24", "time_display": "[01:21 ~ 01:31]", "ranks": [6, 15], "is_new": false, "count": 2, "category": "库存与物流", "module": "产业与供需基本面", "heat_score": 7.8, "summary": "命中「库存与物流」模块，综合热度 7.8，累计出现 2 次。"}, {"id": "经济数据-4", "title": "美国20年期国债收益率在拍卖后上升，最新上涨0.5个基点至4.886%。", "url": "https://flash.jin10.com/detail/20260423010420299800", "source_name": "金十数据", "time_display": "[01:21 ~ 01:31]", "ranks": [8], "is_new": false, "count": 2, "category": "经济数据", "module": "宏观与金融政策", "heat_score": 7.8, "summary": "命中「经济数据」模块，综合热度 7.8，累计出现 2 次。"}, {"id": "国际关系-86", "title": "美国得州总检察长对 SPOTIFY、苹果音乐启动调查。调查范围涵盖潘多拉、亚马逊音乐、油管音乐。", "url": "https://finance.sina.com.cn/7x24/notification.shtml?id=4833845", "source_name": "新浪财经 7x24", "time_display": "[01:21 ~ 01:31]", "ranks": [7, 16], "is_new": false, "count": 2, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 7.5, "summary": "命中「国际关系」模块，综合热度 7.5，累计出现 2 次。"}, {"id": "国际关系-87", "title": "伊朗国家电视台消息：伊朗处决一名被判为以色列从事间谍活动的男子。", "url": "https://finance.sina.com.cn/7x24/notification.shtml?id=4833842", "source_name": "新浪财经 7x24", "time_display": "[01:21 ~ 01:31]", "ranks": [8, 17], "is_new": false, "count": 2, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 7.2, "summary": "命中「国际关系」模块，综合热度 7.2，累计出现 2 次。"}, {"id": "国际关系-88", "title": "美国贸易代表格里尔：愿意考虑使用贸易工具来保护美国糖生产商。", "url": "https://flash.jin10.com/detail/20260423010357857800", "source_name": "金十数据", "time_display": "[01:21 ~ 01:31]", "ranks": [9], "is_new": false, "count": 2, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 7.2, "summary": "命中「国际关系」模块，综合热度 7.2，累计出现 2 次。"}, {"id": "国际关系-89", "title": "欧莱雅首席执行官：受高端细分产品拉动，中国业务重回正增长区间。", "url": "https://finance.sina.com.cn/7x24/notification.shtml?id=4833841", "source_name": "新浪财经 7x24", "time_display": "[01:21 ~ 01:31]", "ranks": [9, 18], "is_new": false, "count": 2, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 6.9, "summary": "命中「国际关系」模块，综合热度 6.9，累计出现 2 次。"}, {"id": "经济数据-5", "title": "美国至4月22日20年期国债竞拍-得标利率配置百分比 56.28%，前值33.71%。", "url": "https://flash.jin10.com/detail/20260423010337157800", "source_name": "金十数据", "time_display": "[01:21 ~ 01:31]", "ranks": [10], "is_new": false, "count": 2, "category": "经济数据", "module": "宏观与金融政策", "heat_score": 6.6, "summary": "命中「经济数据」模块，综合热度 6.6，累计出现 2 次。"}, {"id": "库存与物流-12", "title": "巴基斯坦官员表示，尽管伊朗在霍尔木兹海峡扣押两艘货船引发新一轮紧张局势，巴方仍希望推动美伊重启谈判。", "url": "https://finance.sina.com.cn/7x24/notification.shtml?id=4833840", "source_name": "新浪财经 7x24", "time_display": "[01:21 ~ 01:31]", "ranks": [10, 19], "is_new": false, "count": 2, "category": "库存与物流", "module": "产业与供需基本面", "heat_score": 6.6, "summary": "命中「库存与物流」模块，综合热度 6.6，累计出现 2 次。"}, {"id": "经济数据-6", "title": "美国至4月22日20年期国债竞拍-投标倍数 2.68，前值2.76。", "url": "https://flash.jin10.com/detail/20260423010306292800", "source_name": "金十数据", "time_display": "[01:21 ~ 01:31]", "ranks": [11], "is_new": false, "count": 2, "category": "经济数据", "module": "宏观与金融政策", "heat_score": 6.6, "summary": "命中「经济数据」模块，综合热度 6.6，累计出现 2 次。"}, {"id": "经济数据-7", "title": "周三（4月22日），美联储隔夜逆回购协议（RRP）使用规模为5.38亿美元（交易对手16家），上个交易日报8.07亿美元。", "url": "https://finance.sina.com.cn/7x24/notification.shtml?id=4833839", "source_name": "新浪财经 7x24", "time_display": "[01:21 ~ 01:31]", "ranks": [11, 20], "is_new": false, "count": 2, "category": "经济数据", "module": "宏观与金融政策", "heat_score": 6.6, "summary": "命中「经济数据」模块，综合热度 6.6，累计出现 2 次。"}, {"id": "经济数据-8", "title": "美国至4月22日20年期国债竞拍-得标利率 4.883%，前值4.82%。", "url": "https://flash.jin10.com/detail/20260423010256554800", "source_name": "金十数据", "time_display": "[01:21 ~ 01:31]", "ranks": [12], "is_new": false, "count": 2, "category": "经济数据", "module": "宏观与金融政策", "heat_score": 6.6, "summary": "命中「经济数据」模块，综合热度 6.6，累计出现 2 次。"}, {"id": "特定品种板块-10", "title": "微软(MSFT.O)：计划将Claude Mythos预览版等先进人工智能模型直接纳入安全开发生命周期。", "url": "https://flash.jin10.com/detail/20260423010140775800", "source_name": "金十数据", "time_display": "[01:21 ~ 01:31]", "ranks": [14], "is_new": false, "count": 2, "category": "特定品种板块", "module": "市场情绪与盘面特征", "heat_score": 6.6, "summary": "命中「特定品种板块」模块，综合热度 6.6，累计出现 2 次。"}, {"id": "特定品种板块-11", "title": "微软(MSFT.O)：计划将内部开发的新型多模型人工智能驱动扫描工具产品化；该解决方案预计将于6月推出预览版。", "url": "https://flash.jin10.com/detail/20260423010110836800", "source_name": "金十数据", "time_display": "[01:21 ~ 01:31]", "ranks": [15], "is_new": false, "count": 2, "category": "特定品种板块", "module": "市场情绪与盘面特征", "heat_score": 6.6, "summary": "命中「特定品种板块」模块，综合热度 6.6，累计出现 2 次。"}, {"id": "经济数据-9", "title": "美债收益率上升，2年期收益率上升2.3个基点至3.802%；10年期收益率上涨1个基点至4.302%。", "url": "https://flash.jin10.com/detail/20260423005813429800", "source_name": "金十数据", "time_display": "[01:21 ~ 01:31]", "ranks": [17], "is_new": false, "count": 2, "category": "经济数据", "module": "宏观与金融政策", "heat_score": 6.6, "summary": "命中「经济数据」模块，综合热度 6.6，累计出现 2 次。"}, {"id": "库存与物流-13", "title": "五角大楼：清除霍尔木兹海峡水雷或需6个月", "url": "https://flash.jin10.com/detail/20260423005714736800", "source_name": "金十数据", "time_display": "[01:21 ~ 01:31]", "ranks": [18], "is_new": false, "count": 2, "category": "库存与物流", "module": "产业与供需基本面", "heat_score": 6.6, "summary": "命中「库存与物流」模块，综合热度 6.6，累计出现 2 次。"}, {"id": "市场情绪-3", "title": "欧莱雅CEO：欧洲消费者展现出“口红效应”，通过美妆产品来补偿压力时期的情绪。", "url": "https://flash.jin10.com/detail/20260423005516558800", "source_name": "金十数据", "time_display": "[01:21 ~ 01:31]", "ranks": [19], "is_new": false, "count": 2, "category": "市场情绪", "module": "市场情绪与盘面特征", "heat_score": 6.6, "summary": "命中「市场情绪」模块，综合热度 6.6，累计出现 2 次。"}, {"id": "库存与物流-14", "title": "据华盛顿邮报：官员们告诉国会，清除霍尔木兹海峡的水雷可能需要6个月时间。", "url": "https://flash.jin10.com/detail/20260423005327741800", "source_name": "金十数据", "time_display": "[01:21 ~ 01:31]", "ranks": [20], "is_new": false, "count": 2, "category": "库存与物流", "module": "产业与供需基本面", "heat_score": 6.6, "summary": "命中「库存与物流」模块，综合热度 6.6，累计出现 2 次。"}, {"id": "库存与物流-15", "title": "卡利巴夫：公然违反停火的情况下 重开霍尔木兹海峡“不可能”", "url": "https://flash.jin10.com/detail/20260423004430590800", "source_name": "金十数据", "time_display": "[01:21 ~ 01:31]", "ranks": [21], "is_new": false, "count": 2, "category": "库存与物流", "module": "产业与供需基本面", "heat_score": 6.6, "summary": "命中「库存与物流」模块，综合热度 6.6，累计出现 2 次。"}, {"id": "国际关系-90", "title": "美媒称美国政府暂停向伊拉克运送美元", "url": "https://www.toutiao.com/trending/7631532143143419942/", "source_name": "今日头条", "time_display": "[00:41 ~ 01:31]", "ranks": [29, 21], "is_new": false, "count": 2, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 6.6, "summary": "命中「国际关系」模块，综合热度 6.6，累计出现 2 次。"}, {"id": "国际关系-91", "title": "中国女子机舱闹事致乘客滞留吉隆坡", "url": "https://www.toutiao.com/trending/7631429104629792774/", "source_name": "今日头条", "time_display": "[00:41 ~ 01:31]", "ranks": [27, 22], "is_new": false, "count": 2, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 6.6, "summary": "命中「国际关系」模块，综合热度 6.6，累计出现 2 次。"}, {"id": "国际关系-92", "title": "美国第九巡回上诉法院裁定：加州无权要求美国移民与海关执法局（ICE）执法人员佩戴身份标识。", "url": "https://finance.sina.com.cn/7x24/notification.shtml?id=4833861", "source_name": "新浪财经 7x24", "time_display": "01:31", "ranks": [6], "is_new": true, "count": 1, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 6.0, "summary": "命中「国际关系」模块，综合热度 6.0，累计出现 1 次。"}, {"id": "国际关系-93", "title": "巴西官员：我们不会驱逐任何美国驻巴西官员。", "url": "https://finance.sina.com.cn/7x24/notification.shtml?id=4833859", "source_name": "新浪财经 7x24", "time_display": "01:31", "ranks": [7], "is_new": true, "count": 1, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 5.4, "summary": "命中「国际关系」模块，综合热度 5.4，累计出现 1 次。"}, {"id": "国际关系-94", "title": "【以总理称以方已准备好应对所有情况】当地时间4月22日晚，以色列总理内塔尼亚胡在其社交媒体账号上发文表示，以色列已准备好应对所有情况——无论在防御还是进攻方面。同日，以色列国防军总参谋长扎米尔表示，鉴于伊朗和黎巴嫩的停火协议依然脆弱，目前以色列军队仍保持高度戒备，并已做好重返所有战线作战的准备。扎米尔说，“此刻，我们正在黎巴嫩展开激烈战斗，以加强北部地区的防御”。他强调，目前，以色列国防军保持高度戒备，随时准备在所有战线重返战场。（央视新闻）", "url": "https://finance.sina.com.cn/7x24/notification.shtml?id=4833858", "source_name": "新浪财经 7x24", "time_display": "01:31", "ranks": [8], "is_new": true, "count": 1, "category": "国际关系", "module": "地缘政治与国际贸易", "heat_score": 4.8, "summary": "命中「国际关系」模块，综合热度 4.8，累计出现 1 次。"}, {"id": "库存与物流-16", "title": "贸易巨头警告：霍尔木兹海峡再这样下去，能源危机将变成粮食危机", "url": "https://wallstreetcn.com/articles/3770551", "source_name": "华尔街见闻", "time_display": "01:31", "ranks": [10], "is_new": true, "count": 1, "category": "库存与物流", "module": "产业与供需基本面", "heat_score": 3.6, "summary": "命中「库存与物流」模块，综合热度 3.6，累计出现 1 次。"}, {"id": "市场情绪-4", "title": "【以外长称以色列和黎巴嫩“没有重大分歧”】当地时间4月22日，在以色列和黎巴嫩第二轮大使级会谈即将举行之前，以色列外长萨尔在一次公开讲话中表示，以色列与黎巴嫩之间“没有重大分歧”。他说，“我们做出了一个历史性的决定，在40多年后与黎巴嫩进行直接谈判”。萨尔表示，以色列与黎巴嫩之间并无任何重大分歧，两国之间存在一些“小的边界争端”，这些争端是可以解决的。两国和平与关系正常化的最大障碍只有一个——真主党。（央视新闻）", "url": "https://finance.sina.com.cn/7x24/notification.shtml?id=4833853", "source_name": "新浪财经 7x24", "time_display": "01:31", "ranks": [12], "is_new": true, "count": 1, "category": "市场情绪", "module": "市场情绪与盘面特征", "heat_score": 3.6, "summary": "命中「市场情绪」模块，综合热度 3.6，累计出现 1 次。"}, {"id": "库存与物流-17", "title": "巴拿马对持中国护照人员加强审查", "url": "https://s.weibo.com/weibo?q=%23%E5%B7%B4%E6%8B%BF%E9%A9%AC%E5%AF%B9%E6%8C%81%E4%B8%AD%E5%9B%BD%E6%8A%A4%E7%85%A7%E4%BA%BA%E5%91%98%E5%8A%A0%E5%BC%BA%E5%AE%A1%E6%9F%A5%23", "source_name": "微博", "time_display": "01:31", "ranks": [30], "is_new": true, "count": 1, "category": "库存与物流", "module": "产业与供需基本面", "heat_score": 3.6, "summary": "命中「库存与物流」模块，综合热度 3.6，累计出现 1 次。"}], "ai_panels": [{"title": "核心热点态势", "badge": "「全网霸屏」", "html": "全网霸屏：「美伊停火谈判」主导舆情。<br><br>【宏观主线】<br>特朗普延长期限实为施压战术，伊朗否认谈判揭示信任破裂，地缘风险推升能源定价权重。<br><br>【微观领域】<br>1. 芯片指数连涨 16 天，科技避险与地缘恐慌形成剪刀差。<br><br>2. 宁德时代钠电量产突破资源瓶颈，成科技股唯一确定性利好。"}, {"title": "舆论风向争议", "badge": "", "html": "【情绪光谱】<br>大众恐慌战争重启，专业机构押注油价回落，预期割裂。<br><br>【核心矛盾】<br>1. 官方释放缓和信号与民间认为特朗普“说谎了”的认知冲突。<br><br>2. 原油库存增加与价格逆势上涨的数据背离。"}, {"title": "异动与弱信号", "badge": "", "html": "【跨平台共振】<br>伊朗话题在金融与社交平台同时霸榜，但科技类在知乎呈独立热度。<br><br>【轨迹突变】<br>宁德时代超充电池问题于 01:31 突登顶知乎第 1，无前期铺垫，属突发技术热点。<br><br>【弱信号捕捉】<br>俄罗斯工业产出超预期未进主流，反映市场对俄经济韧性的信息不对称。"}, {"title": "研判策略建议", "badge": "", "html": "1. 投资者：对冲原油价格波动风险，警惕芯片股高位回调。<br><br>2. 品牌方：审查中东地区物流路径，布局北极油气替代方案。<br><br>3. 公众：甄别伊朗谈判真假，防范相关金融产品欺诈。"}, {"title": "独立源点速览", "badge": "", "html": "<strong>知乎<\/strong><br>知乎呈现技术理性化特征。除美伊话题排名靠后外，超充电池问稳定榜首（1→1），DeepSeek 模型新 API（7→8）与黑袍纠察队剧情（9→9）构成次级热点，显示社区更关注硬科技与文化消费而非外交。<br><br><strong>华尔街见闻<\/strong><br>华尔街见闻强化金融属性解读。费城半导体指连涨 16 天与布油重回 100 美元成为核心变量，相比大众热榜更强调库存数据与价格背离的逻辑，且深度追踪中石化减持宁德时代 H 股细节（排名 9→8），信息颗粒度更细。"}], "rss_updates": {"title": "RSS 新增更新", "subtitle": "订阅源最新动态", "items": [{"title": "", "url": "", "source_name": "RSS", "time_display": "", "is_new": false}]}, "source_distribution": [{"name": "金十期货", "value": 66}, {"name": "新浪财经 7x24", "value": 18}, {"name": "金十数据", "value": 17}, {"name": "今日头条", "value": 10}, {"name": "华尔街见闻", "value": 8}, {"name": "凤凰网", "value": 6}, {"name": "微博", "value": 6}, {"name": "澎湃新闻", "value": 5}, {"name": "百度热搜", "value": 5}, {"name": "知乎", "value": 5}, {"name": "财联社热门", "value": 5}, {"name": "贴吧", "value": 5}, {"name": "bilibili 热搜", "value": 2}], "keywords": [{"name": "国际关系", "category": "国际关系", "module": "地缘政治与国际贸易", "count": 94, "toneClass": "tone-cyan"}, {"name": "库存与物流", "category": "库存与物流", "module": "产业与供需基本面", "count": 17, "toneClass": "tone-purple"}, {"name": "特定品种板块", "category": "特定品种板块", "module": "市场情绪与盘面特征", "count": 11, "toneClass": "tone-green"}, {"name": "经济数据", "category": "经济数据", "module": "宏观与金融政策", "count": 9, "toneClass": "tone-red"}, {"name": "社会动荡", "category": "社会动荡", "module": "灾害与安全事件", "count": 7, "toneClass": "tone-amber"}, {"name": "价格波动", "category": "价格波动", "module": "市场情绪与盘面特征", "count": 6, "toneClass": "tone-green"}, {"name": "人为事故", "category": "人为事故", "module": "灾害与安全事件", "count": 5, "toneClass": "tone-amber"}, {"name": "市场情绪", "category": "市场情绪", "module": "市场情绪与盘面特征", "count": 4, "toneClass": "tone-green"}, {"name": "重点企业", "category": "重点企业", "module": "企业与行业动态", "count": 2, "toneClass": "tone-cyan"}, {"name": "供给与生产", "category": "供给与生产", "module": "产业与供需基本面", "count": 1, "toneClass": "tone-purple"}, {"name": "国际组织与报告", "category": "国际组织与报告", "module": "地缘政治与国际贸易", "count": 1, "toneClass": "tone-cyan"}, {"name": "需求与消费", "category": "需求与消费", "module": "产业与供需基本面", "count": 1, "toneClass": "tone-purple"}, {"name": "成本与利润", "category": "成本与利润", "module": "产业与供需基本面", "count": 0, "toneClass": "tone-purple"}, {"name": "自然灾害", "category": "自然灾害", "module": "灾害与安全事件", "count": 0, "toneClass": "tone-amber"}, {"name": "行业政策", "category": "行业政策", "module": "企业与行业动态", "count": 0, "toneClass": "tone-cyan"}, {"name": "金融机构与监管", "category": "金融机构与监管", "module": "宏观与金融政策", "count": 0, "toneClass": "tone-red"}]};</script>
+  <script>
+    const { createApp, ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } = Vue
+
+    const FALLBACK_PAYLOAD = {
+      meta: {
+        title: '恒银智能舆情监控',
+        subtitle: '刷新时间：--/-- --:--',
+        refreshTime: '--/-- --:--',
+        reportType: '当前榜单',
+        updateTime: '-- --:--',
+        dateLabel: '----年--月--日 星期-',
+      },
+      stats: {
+        newsTotal: 0,
+        hotNews: 0,
+        reportType: '当前榜单',
+        updateTime: '-- --:--',
+      },
+      categories: [],
+      news: [],
+      ai_panels: [],
+      rss_updates: {
+        title: 'RSS 新增更新',
+        subtitle: '暂无新增订阅动态',
+        items: [],
+      },
+      source_distribution: [],
+      keywords: [],
+    }
+
+    const rawScreenPayload = globalThis.__TRENDRADAR_SCREEN__ || FALLBACK_PAYLOAD
+    const rawMockApi = rawScreenPayload
+
+    function pad(num) {
+      return String(num).padStart(2, '0')
+    }
+
+    function formatRankText(ranks) {
+      const values = Array.isArray(ranks) && ranks.length ? ranks : [99]
+      const min = Math.min(...values)
+      const max = Math.max(...values)
+      return min === max ? `${min}` : `${min}-${max}`
+    }
+
+    function adaptDashboardData(raw) {
+      const categories = Array.isArray(raw.categories) ? raw.categories : []
+      const news = Array.isArray(raw.news) ? [...raw.news] : []
+      const newsByCategory = {
+        '全部资讯': news.map((item, index) => ({
+          ...item,
+          categoryRank: index + 1,
+        })),
+      }
+
+      categories.forEach((category) => {
+        newsByCategory[category.name] = news
+          .filter((item) => item.category === category.name)
+          .map((item, index) => ({
+            ...item,
+            categoryRank: index + 1,
+          }))
+      })
+
+      return {
+        categories: [{ name: '全部资讯', count: news.length }, ...categories],
+        newsByCategory,
+        sourceChartData: Array.isArray(raw.source_distribution) ? raw.source_distribution : [],
+        keywordCloud: Array.isArray(raw.keywords) ? raw.keywords : [],
+        aiPanels: Array.isArray(raw.ai_panels) ? raw.ai_panels : [],
+        rssState: raw.rss_updates || FALLBACK_PAYLOAD.rss_updates,
+        meta: raw.meta || FALLBACK_PAYLOAD.meta,
+        stats: raw.stats || FALLBACK_PAYLOAD.stats,
+      }
+    }
+
+    globalThis.rawMockApi = rawMockApi
+    globalThis.adaptDashboardData = adaptDashboardData
+
+    createApp({
+      setup() {
+        const dashboard = adaptDashboardData(rawMockApi)
+        const pageSize = 10
+        const selectedCategory = ref('全部资讯')
+        const selectedKeyword = ref('')
+        const currentPage = ref(1)
+        const currentTime = ref(new Date())
+        const categoryBarRef = ref(null)
+        const categoryIndicatorStyle = ref({ width: '0px', transform: 'translateX(0px)' })
+        const sourceChartRef = ref(null)
+        const animatedStats = reactive({
+          newsTotal: 0,
+          hotNews: 0,
+        })
+
+        let chartInstance = null
+        let clockTimer = null
+        let refreshTimer = null
+
+        const categories = computed(() => dashboard.categories)
+        const meta = computed(() => dashboard.meta)
+        const aiPanels = computed(() => dashboard.aiPanels)
+        const keywordCloud = computed(() => dashboard.keywordCloud)
+        const rssState = computed(() => dashboard.rssState)
+        const filteredNews = computed(() => dashboard.newsByCategory[selectedCategory.value] || [])
+        const totalPages = computed(() => Math.max(1, Math.ceil(filteredNews.value.length / pageSize)))
+        const visibleNews = computed(() => {
+          const start = (currentPage.value - 1) * pageSize
+          return filteredNews.value.slice(start, start + pageSize).map((item, index) => ({
+            ...item,
+            key: `${selectedCategory.value}-${currentPage.value}-${item.id}`,
+            displayIndex: start + index + 1,
+            rankText: formatRankText(item.ranks),
+            topClass: item.categoryRank && item.categoryRank <= 3 ? `top-${item.categoryRank}` : '',
+          }))
+        })
+
+        const statsCards = computed(() => [
+          {
+            key: 'newsTotal',
+            iconClass: 'fa-regular fa-newspaper',
+            label: '新闻总数',
+            value: dashboard.stats.newsTotal,
+            foot: '本次新增 0 条',
+            type: 'number',
+          },
+          {
+            key: 'hotNews',
+            iconClass: 'fa-solid fa-fire-flame-curved',
+            label: '热点新闻',
+            value: dashboard.stats.hotNews,
+            foot: '高热资讯',
+            type: 'number',
+          },
+          {
+            key: 'reportType',
+            iconClass: 'fa-solid fa-chart-line',
+            label: '报告类型',
+            value: dashboard.stats.reportType,
+            foot: '实时热点监控',
+            type: 'text',
+          },
+          {
+            key: 'updateTime',
+            iconClass: 'fa-regular fa-clock',
+            label: '更新时间',
+            value: dashboard.stats.updateTime,
+            foot: '每30分钟自动更新',
+            type: 'text',
+          },
+        ])
+
+        const clockParts = computed(() => ({
+          hh: pad(currentTime.value.getHours()),
+          mm: pad(currentTime.value.getMinutes()),
+          ss: pad(currentTime.value.getSeconds()),
+        }))
+
+        function animateCounter(key, target) {
+          const start = performance.now()
+          const duration = 1200
+
+          function tick(now) {
+            const progress = Math.min((now - start) / duration, 1)
+            const eased = 1 - Math.pow(1 - progress, 3)
+            animatedStats[key] = Math.round(target * eased)
+            if (progress < 1) {
+              requestAnimationFrame(tick)
+            }
+          }
+
+          requestAnimationFrame(tick)
+        }
+
+        function updateCategoryIndicator() {
+          nextTick(() => {
+            if (!categoryBarRef.value) return
+            const buttons = Array.from(categoryBarRef.value.querySelectorAll('.category-chip'))
+            const activeButton = buttons.find((button) => button.dataset.category === selectedCategory.value)
+            if (!activeButton) return
+
+            categoryIndicatorStyle.value = {
+              width: `${activeButton.offsetWidth}px`,
+              transform: `translateX(${activeButton.offsetLeft}px)`,
+            }
+          })
+        }
+
+        function selectCategory(name) {
+          selectedCategory.value = name
+          selectedKeyword.value = ''
+          currentPage.value = 1
+        }
+
+        function selectKeyword(keyword) {
+          selectedKeyword.value = keyword.name
+          selectedCategory.value = keyword.category
+          currentPage.value = 1
+        }
+
+        function nextPage() {
+          currentPage.value = currentPage.value >= totalPages.value ? 1 : currentPage.value + 1
+        }
+
+        function prevPage() {
+          currentPage.value = currentPage.value <= 1 ? totalPages.value : currentPage.value - 1
+        }
+
+        function initChart() {
+          if (!sourceChartRef.value || !window.echarts) return
+
+          if (chartInstance) {
+            chartInstance.dispose()
+            chartInstance = null
+          }
+
+          chartInstance = echarts.init(sourceChartRef.value)
+          const yAxisData = dashboard.sourceChartData.map((item) => item.name).reverse()
+          const seriesData = dashboard.sourceChartData.map((item) => item.value).reverse()
+
+          chartInstance.setOption({
+            animationDuration: 700,
+            animationEasing: 'cubicOut',
+            grid: {
+              top: 8,
+              right: 18,
+              bottom: 8,
+              left: 90,
+              containLabel: false,
+            },
+            tooltip: { show: false },
+            xAxis: {
+              type: 'value',
+              axisLine: { show: false },
+              axisTick: { show: false },
+              splitLine: {
+                lineStyle: { color: 'rgba(123, 123, 158, 0.08)' },
+              },
+              axisLabel: { color: '#7b7b9e', fontSize: 10 },
+            },
+            yAxis: {
+              type: 'category',
+              data: yAxisData,
+              axisLine: { show: false },
+              axisTick: { show: false },
+              axisLabel: {
+                color: '#c0c0d8',
+                fontSize: 11,
+                width: 84,
+                overflow: 'truncate',
+              },
+            },
+            series: [
+              {
+                type: 'bar',
+                data: seriesData,
+                barWidth: 10,
+                showBackground: true,
+                backgroundStyle: {
+                  color: 'rgba(255, 255, 255, 0.03)',
+                  borderRadius: 999,
+                },
+                itemStyle: {
+                  borderRadius: 999,
+                  color: new echarts.graphic.LinearGradient(1, 0, 0, 0, [
+                    { offset: 0, color: '#a855f7' },
+                    { offset: 1, color: '#00d4ff' },
+                  ]),
+                  shadowBlur: 12,
+                  shadowColor: 'rgba(0, 212, 255, 0.18)',
+                },
+                label: {
+                  show: true,
+                  position: 'right',
+                  color: '#e8e8f0',
+                  fontFamily: 'JetBrains Mono, Courier New, monospace',
+                  fontSize: 11,
+                },
+              },
+            ],
+          })
+        }
+
+        function handleResize() {
+          updateCategoryIndicator()
+          if (chartInstance) {
+            chartInstance.resize()
+          }
+        }
+
+        watch(selectedCategory, () => {
+          if (currentPage.value > totalPages.value) {
+            currentPage.value = 1
+          }
+          updateCategoryIndicator()
+        })
+
+        watch(totalPages, () => {
+          if (currentPage.value > totalPages.value) {
+            currentPage.value = 1
+          }
+        })
+
+        onMounted(() => {
+          animateCounter('newsTotal', dashboard.stats.newsTotal)
+          animateCounter('hotNews', dashboard.stats.hotNews)
+          updateCategoryIndicator()
+
+          clockTimer = setInterval(() => {
+            currentTime.value = new Date()
+          }, 1000)
+
+          refreshTimer = setInterval(() => {
+            window.location.reload()
+          }, 60000)
+
+          nextTick(() => {
+            requestAnimationFrame(() => {
+              initChart()
+              requestAnimationFrame(() => {
+                handleResize()
+              })
+            })
+          })
+
+          window.addEventListener('resize', handleResize)
+        })
+
+        onBeforeUnmount(() => {
+          clearInterval(clockTimer)
+          clearInterval(refreshTimer)
+          window.removeEventListener('resize', handleResize)
+          if (chartInstance) {
+            chartInstance.dispose()
+            chartInstance = null
+          }
+        })
+
+        return {
+          aiPanels,
+          animatedStats,
+          categories,
+          categoryBarRef,
+          categoryIndicatorStyle,
+          clockParts,
+          currentPage,
+          filteredNews,
+          keywordCloud,
+          meta,
+          nextPage,
+          prevPage,
+          rssState,
+          selectCategory,
+          selectKeyword,
+          selectedCategory,
+          selectedKeyword,
+          sourceChartRef,
+          statsCards,
+          totalPages,
+          visibleNews,
+        }
+      },
+    }).mount('#app')
+  </script>
+</body>
+</html>
