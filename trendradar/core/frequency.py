@@ -19,6 +19,189 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Union
 
 
+def _split_keyword_line(line: str) -> Tuple[Optional[str], List[str]]:
+    """解析维护文件中的列表项：标题: 词1,词2。"""
+    item = line.strip()
+    if item.startswith(("-", "*", "+")):
+        item = item[1:].strip()
+
+    parts = re.split(r"\s*[:：]\s*", item, 1)
+    if len(parts) != 2 or not parts[0].strip() or not parts[1].strip():
+        return None, []
+
+    title = parts[0].strip()
+    keywords = [word.strip() for word in re.split(r"[,，]", parts[1]) if word.strip()]
+    return title, keywords
+
+
+def parse_keyword_markdown(content: str) -> List[Dict]:
+    """
+    解析关键词维护 Markdown。
+
+    一级标题作为模块，二级标题作为分类，二级标题下的无序列表作为关键词组。
+    """
+    modules = []
+    current_module = None
+    current_category = None
+
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        if line.startswith("# "):
+            current_module = {"name": line[2:].strip(), "categories": []}
+            modules.append(current_module)
+            current_category = None
+            continue
+
+        if line.startswith("## "):
+            if current_module is None:
+                current_module = {"name": "未分类", "categories": []}
+                modules.append(current_module)
+            current_category = {"name": line[3:].strip(), "groups": []}
+            current_module["categories"].append(current_category)
+            continue
+
+        if line.startswith(("- ", "* ", "+ ")):
+            if current_category is None:
+                if current_module is None:
+                    current_module = {"name": "未分类", "categories": []}
+                    modules.append(current_module)
+                current_category = {"name": "未分类", "groups": []}
+                current_module["categories"].append(current_category)
+
+            title, keywords = _split_keyword_line(line)
+            if title and keywords:
+                current_category["groups"].append(
+                    {"title": title, "keywords": keywords}
+                )
+
+    return [
+        module
+        for module in modules
+        if any(category["groups"] for category in module["categories"])
+    ]
+
+
+def keyword_modules_to_frequency_text(modules: List[Dict]) -> str:
+    """将关键词维护结构转换为 frequency_words.txt 运行时格式。"""
+    lines = [
+        "# ═══════════════════════════════════════════════════════════════",
+        "#                    TrendRadar 频率词配置文件",
+        "#                      数据来源: 关键词管理上传",
+        "# ═══════════════════════════════════════════════════════════════",
+        "",
+        "[GLOBAL_FILTER]",
+        "",
+        "[WORD_GROUPS]",
+        "",
+    ]
+
+    for module in modules:
+        module_name = module.get("name", "").strip()
+        if module_name:
+            lines.extend(
+                [
+                    "# ═══════════════════════════════════════════════════════════════",
+                    f"#                         {module_name}",
+                    "# ═══════════════════════════════════════════════════════════════",
+                    "",
+                ]
+            )
+
+        for category in module.get("categories", []):
+            groups = category.get("groups", [])
+            if not groups:
+                continue
+
+            lines.append(f"[{category.get('name', '').strip() or '未分类'}]")
+            for group in groups:
+                keywords = [
+                    keyword.replace("|", r"\|").replace("/", r"\/")
+                    for keyword in group.get("keywords", [])
+                    if keyword
+                ]
+                if keywords:
+                    lines.append(
+                        f"/{'|'.join(keywords)}/ => {group.get('title', '').strip()}"
+                    )
+            lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def parse_frequency_words_for_display(content: str) -> List[Dict]:
+    """解析 frequency_words.txt，用于管理页按模块/分类展示当前关键词。"""
+    modules = []
+    current_module = None
+    current_category = None
+    in_word_groups = False
+
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        if line == "[WORD_GROUPS]":
+            in_word_groups = True
+            current_module = None
+            current_category = None
+            continue
+
+        if line in ("[GLOBAL_FILTER]",):
+            in_word_groups = False
+            continue
+
+        if not in_word_groups:
+            continue
+
+        if line.startswith("#"):
+            module_name = line.lstrip("#").strip(" ═─")
+            if module_name:
+                current_module = {"name": module_name, "categories": []}
+                modules.append(current_module)
+                current_category = None
+            continue
+
+        if line.startswith("[") and line.endswith("]"):
+            if current_module is None:
+                current_module = {"name": "未分类", "categories": []}
+                modules.append(current_module)
+            current_category = {"name": line[1:-1].strip(), "groups": []}
+            current_module["categories"].append(current_category)
+            continue
+
+        if current_category is None:
+            continue
+
+        word_config, display_name = re.split(r"\s*=>\s*", line, 1) if "=>" in line else (line, "")
+        regex_match = re.match(r"^/(.*)/[a-z]*$", word_config.strip())
+        raw_words = regex_match.group(1) if regex_match else word_config.strip()
+        keywords = [
+            keyword.replace(r"\|", "|").replace(r"\/", "/").strip()
+            for keyword in raw_words.split("|")
+            if keyword.strip()
+        ]
+        current_category["groups"].append(
+            {"title": display_name.strip() or raw_words, "keywords": keywords}
+        )
+
+    return [
+        module
+        for module in modules
+        if any(category["groups"] for category in module["categories"])
+    ]
+
+
+def convert_keyword_markdown_to_frequency_text(content: str) -> str:
+    """把上传的关键词 Markdown 转换为 frequency_words.txt 内容。"""
+    modules = parse_keyword_markdown(content)
+    if not modules:
+        raise ValueError("未解析到有效关键词，请检查一级/二级标题和无序列表格式")
+    return keyword_modules_to_frequency_text(modules)
+
+
 def _parse_word(word: str) -> Dict:
     """
     解析单个词，识别是否为正则表达式，支持显示名称

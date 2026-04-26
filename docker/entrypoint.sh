@@ -27,16 +27,16 @@ case "${RUN_MODE:-cron}" in
         exit 1
     fi
 
-    # 立即执行一次（如果配置了）
-    if [ "${IMMEDIATE_RUN:-false}" = "true" ]; then
-        echo "▶️ 立即执行一次"
-        /usr/local/bin/python -m trendradar
-    fi
-
     # 启动 Web 服务器（如果配置了）
     if [ "${ENABLE_WEBSERVER:-false}" = "true" ]; then
         echo "🌐 启动 Web 服务器..."
         /usr/local/bin/python manage.py start_webserver
+    fi
+
+    # 立即执行一次（如果配置了）
+    if [ "${IMMEDIATE_RUN:-false}" = "true" ]; then
+        echo "▶️ 立即执行一次"
+        /usr/local/bin/python -m trendradar
     fi
 
     echo "⏰ 启动supercronic: ${CRON_SCHEDULE:-*/30 * * * *}"

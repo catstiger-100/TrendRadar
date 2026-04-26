@@ -448,9 +448,9 @@ def restart_supercronic():
 
 
 def start_webserver():
-    """启动 Web 服务器托管 output 目录"""
+    """启动 Web 服务器托管 output 目录并提供管理 API"""
     print(f"🌐 启动 Web 服务器 (端口: {WEBSERVER_PORT})...")
-    print(f"  🔒 安全提示：仅提供静态文件访问，限制在 {WEBSERVER_DIR} 目录")
+    print(f"  🔒 安全提示：报告文件限制在 {WEBSERVER_DIR} 目录，管理页不包含认证")
 
     # 检查是否已经运行
     if Path(WEBSERVER_PID_FILE).exists():
@@ -479,12 +479,10 @@ def start_webserver():
         return
 
     try:
-        # 启动 HTTP 服务器
-        # 使用 --bind 绑定到 0.0.0.0 使容器内部可访问
-        # 工作目录限制在 WEBSERVER_DIR，防止访问其他目录
+        # 启动 TrendRadar 管理服务
         process = subprocess.Popen(
-            [sys.executable, '-m', 'http.server', str(WEBSERVER_PORT), '--bind', '0.0.0.0'],
-            cwd=WEBSERVER_DIR,
+            [sys.executable, "-m", "trendradar.admin_server"],
+            cwd="/app",
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True
@@ -500,9 +498,10 @@ def start_webserver():
                 f.write(str(process.pid))
 
             print(f"  ✅ Web 服务器已启动 (PID: {process.pid})")
-            print(f"  📁 服务目录: {WEBSERVER_DIR} (只读，仅静态文件)")
+            print(f"  📁 服务目录: {WEBSERVER_DIR}")
             print(f"  🌐 访问地址: http://localhost:{WEBSERVER_PORT}")
             print(f"  📄 首页: http://localhost:{WEBSERVER_PORT}/index.html")
+            print(f"  🛠️ 管理页: http://localhost:{WEBSERVER_PORT}/admin.html")
             print("  💡 停止服务: python manage.py stop_webserver")
         else:
             print(f"  ❌ Web 服务器启动失败")

@@ -19,6 +19,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from trendradar.ai.formatter import _format_list_content
 from trendradar.core.analyzer import calculate_news_weight
 from trendradar.report.helpers import clean_title, html_escape
+from trendradar.utils.time import format_iso_time_friendly
 
 
 SCREEN_TEMPLATE_PATH = Path(__file__).resolve().parent / "screen_template.html"
@@ -282,12 +283,20 @@ def _build_rss_payload(rss_items: Optional[List[Dict[str, Any]]]) -> Dict[str, A
     for index, item in enumerate(rss_items or [], 1):
         if index > 6:
             break
+        time_display = clean_title(item.get("time_display", ""))
+        if not time_display and item.get("published_at"):
+            time_display = format_iso_time_friendly(
+                item.get("published_at", ""),
+                include_date=True,
+            )
         items.append(
             {
                 "title": clean_title(item.get("title", "")),
                 "url": item.get("url", ""),
-                "source_name": clean_title(item.get("source_name", "RSS")),
-                "time_display": clean_title(item.get("time_display", "")),
+                "source_name": clean_title(
+                    item.get("source_name") or item.get("feed_name") or "RSS"
+                ),
+                "time_display": time_display,
                 "is_new": bool(item.get("is_new", False)),
             }
         )
