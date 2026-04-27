@@ -336,9 +336,17 @@ def count_word_frequency(
                 if len(word_groups) > 1 or word_groups[0]["group_key"] != "全部新闻":
                     for kw in required_words + normal_words:
                         if _word_matches(kw, title_lower):
-                            kw_name = kw.get("display_name") or kw["word"]
-                            if kw_name not in matched_keywords:
-                                matched_keywords.append(kw_name)
+                            if kw.get("is_regex") and kw.get("word"):
+                                # 正则模式：拆分 | 并提取真正命中的单个关键词
+                                for sub_pattern in kw["word"].split("|"):
+                                    sub_pattern = sub_pattern.strip()
+                                    if sub_pattern and sub_pattern.lower() in title_lower:
+                                        if sub_pattern not in matched_keywords:
+                                            matched_keywords.append(sub_pattern)
+                            else:
+                                kw_name = kw.get("display_name") or kw["word"]
+                                if kw_name not in matched_keywords:
+                                    matched_keywords.append(kw_name)
 
                 # 判断是否为新增
                 is_new = False

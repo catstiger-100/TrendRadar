@@ -24,6 +24,7 @@ from trendradar.storage import convert_crawl_results_to_news_data
 from trendradar.utils.time import DEFAULT_TIMEZONE, is_within_days, calculate_days_old
 from trendradar.ai import AIAnalyzer, AIAnalysisResult
 from trendradar.core.scheduler import ResolvedSchedule
+from trendradar.core.frequency import parse_frequency_words_for_display
 
 
 def _parse_version(version_str: str) -> Tuple[int, int, int]:
@@ -854,7 +855,70 @@ class NewsAnalyzer:
                 screen_stats=screen_stats,
             )
 
+        # 保存匹配的文章到 PostgreSQL
+        self._save_articles_to_postgres(stats)
+
         return stats, html_file, ai_result
+
+    def _build_keyword_category_map(self) -> Dict[str, Tuple[str, str]]:
+        """
+        从 frequency_words.txt 构建关键词显示名 -> (一级分类, 二级分类) 的映射。
+        """
+        try:
+            content = Path(
+                os.environ.get("FREQUENCY_WORDS_PATH", "config/frequency_words.txt")
+            ).read_text(encoding="utf-8")
+        except Exception:
+            return {}
+
+        modules = parse_frequency_words_for_display(content)
+        mapping: Dict[str, Tuple[str, str]] = {}
+        for module in modules:
+            module_name = module.get("name", "")
+            for category in module.get("categories", []):
+                category_name = category.get("name", "")
+                for group in category.get("groups", []):
+                    group_title = group.get("title", "")
+                    if group_title:
+                        mapping[group_title] = (module_name, category_name)
+        return mapping
+
+    def _save_articles_to_postgres(self, stats: List[Dict]) -> None:
+        """将分析结果中的匹配文章保存到 PostgreSQL。"""
+        try:
+            from trendradar.storage.news_repository import save_articles
+
+            if not hasattr(self, "_keyword_category_map"):
+                self._keyword_category_map = self._build_keyword_category_map()
+
+            keyword_map = self._keyword_category_map
+            now = self.ctx.get_time()
+            articles = []
+
+            for stat in stats:
+                display_name = stat.get("word", "")
+                cat_l1, cat_l2 = keyword_map.get(display_name, ("", ""))
+                for title_data in stat.get("titles", []):
+                    matched_kw = title_data.get("matched_keywords", [])
+                    articles.append({
+                        "title": title_data.get("title", ""),
+                        "source_name": title_data.get("source_name", ""),
+                        "source_url": title_data.get("url", ""),
+                        "published_at": now,
+                        "category_l1": cat_l1,
+                        "category_l2": cat_l2,
+                        "keywords": matched_kw,
+                        "crawl_time": now,
+                    })
+
+            if articles:
+                saved = save_articles(articles)
+                if saved > 0:
+                    print(f"[DB] 已保存 {saved} 条新资讯到 PostgreSQL")
+            else:
+                print("[DB] 未发现需要保存的匹配资讯")
+        except Exception as e:
+            print(f"[DB] 保存到 PostgreSQL 失败: {e}")
 
     def _send_notification_if_needed(
         self,

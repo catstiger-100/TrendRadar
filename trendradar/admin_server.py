@@ -145,6 +145,12 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/keywords/backups":
             self._send_backups()
             return
+        if path == "/api/news":
+            self._send_news()
+            return
+        if path == "/api/news/keywords-list":
+            self._send_news_keywords_list()
+            return
         super().do_GET()
 
     def do_POST(self):
@@ -235,6 +241,43 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         if filename.lower().endswith(".xlsx"):
             return filename, _xlsx_to_markdown(io.BytesIO(data))
         return filename, data.decode("utf-8-sig")
+
+    def _send_news_keywords_list(self):
+        """返回所有已存储的关键词列表（用于筛选下拉框）。"""
+        try:
+            from trendradar.storage.news_repository import get_all_keywords
+            keywords = get_all_keywords()
+            self._send_json(200, {"keywords": keywords})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _send_news(self):
+        """分页查询资讯（支持关键词和日期筛选）。"""
+        try:
+            from trendradar.storage.news_repository import query_articles
+            from urllib.parse import parse_qs
+
+            query = parse_qs(urlparse(self.path).query)
+            keyword = query.get("keyword", [None])[0]
+            query_date = query.get("date", [None])[0]
+            page = int(query.get("page", ["1"])[0])
+            page_size = int(query.get("page_size", ["20"])[0])
+
+            rows, total = query_articles(
+                keyword=keyword,
+                query_date=query_date,
+                page=page,
+                page_size=page_size,
+            )
+            self._send_json(200, {
+                "items": rows,
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": max(1, (total + page_size - 1) // page_size),
+            })
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
 
     def _backup_frequency_file(self):
         if not FREQUENCY_WORDS_PATH.exists():

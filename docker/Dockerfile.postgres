@@ -1,0 +1,37 @@
+FROM postgres:16
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    postgresql-server-dev-16 \
+    wget \
+    bzip2 \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build and install SCWS (Simple Chinese Word Segmentation)
+RUN wget -q --timeout=120 http://www.xunsearch.com/scws/down/scws-1.2.3.tar.bz2 && \
+    tar xf scws-1.2.3.tar.bz2 && \
+    cd scws-1.2.3 && \
+    ./configure --prefix=/usr/local && \
+    make -j"$(nproc)" && \
+    make install && \
+    cd .. && \
+    rm -rf scws-1.2.3 scws-1.2.3.tar.bz2
+
+# Build and install zhparser
+RUN git clone --depth 1 --branch V2.2 https://github.com/amutu/zhparser.git && \
+    cd zhparser && \
+    make -j"$(nproc)" && \
+    make install && \
+    cd .. && \
+    rm -rf zhparser
+
+# Clean up build tools
+RUN apt-get remove -y build-essential git postgresql-server-dev-16 wget bzip2 && \
+    apt-get autoremove -y && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
+    ldconfig
+
+COPY docker/init-db.sql /docker-entrypoint-initdb.d/
