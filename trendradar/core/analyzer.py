@@ -581,7 +581,8 @@ def count_rss_frequency(
         word_stats[group_key] = {"count": 0, "titles": []}
 
     total_items = len(rss_items)
-    processed_urls = set()  # 用于去重
+    processed_urls = set()  # 用于 URL 去重
+    processed_titles = set()  # 用于标题去重（不同数据源标题相同视为重复）
 
     # 为每个条目分配一个基于发布时间的"排名"
     # 按发布时间排序，最新的排在前面
@@ -596,11 +597,15 @@ def count_rss_frequency(
         title = item.get("title", "")
         url = item.get("url", "")
 
-        # 去重
+        # 去重（URL 相同或标题相同均视为重复）
         if url and url in processed_urls:
+            continue
+        if title and title in processed_titles:
             continue
         if url:
             processed_urls.add(url)
+        if title:
+            processed_titles.add(title)
 
         # 使用统一的匹配逻辑
         if not matches_word_groups(title, word_groups, filter_words, global_filters):
