@@ -2,7 +2,7 @@
 """
 TrendRadar 管理 Web 服务。
 
-服务 output 目录静态文件，同时提供关键词维护 API。
+服务 output 目录静态文件，同时提供关键词维护与 AI 分析 API。
 """
 
 import io
@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import zipfile
+import traceback
 from datetime import datetime
 from email.parser import BytesParser
 from email.policy import default
@@ -18,6 +19,10 @@ from pathlib import Path
 from urllib.parse import urlparse
 from xml.etree import ElementTree
 
+from trendradar.__main__ import NewsAnalyzer
+from trendradar.ai.analyzer import AIAnalysisResult
+from trendradar.ai.formatter import _format_list_content
+from trendradar.core import load_config
 from trendradar.core.frequency import (
     convert_keyword_markdown_to_frequency_text,
     parse_frequency_words_for_display,
@@ -158,6 +163,9 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/keywords/upload":
             self._upload_keywords()
             return
+        if path == "/api/ai-analysis/reanalyze":
+            self._reanalyze_ai()
+            return
         self.send_error(404, "Not Found")
 
     def _serve_admin_html(self):
@@ -178,6 +186,151 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def _build_ai_panel_payload(self, result: AIAnalysisResult):
+        if not result or not getattr(result, "success", False):
+            message = getattr(result, "error", "") or "当前运行未生成 AI 热点分析。"
+            return [
+                {
+                    "title": "核心热点态势",
+                    "html": message,
+                    "text": message,
+                }
+            ]
+
+        panels = []
+
+        def add_panel(title, text):
+            if not text:
+                return
+            normalized = _format_list_content(text)
+            panels.append(
+                {
+                    "title": title,
+                    "text": normalized,
+                    "html": normalized.replace("\n", "<br>"),
+                }
+            )
+
+        add_panel("核心热点态势", result.core_trends)
+        add_panel("舆论风向争议", result.sentiment_controversy)
+        add_panel("异动与弱信号", result.signals)
+        add_panel("RSS 深度洞察", result.rss_insights)
+        add_panel("研判策略建议", result.outlook_strategy)
+
+        if result.standalone_summaries:
+            standalone_text = "\n\n".join(
+                f"{name}\n{_format_list_content(summary)}"
+                for name, summary in result.standalone_summaries.items()
+                if summary
+            )
+            add_panel("独立源点速览", standalone_text)
+
+        return panels or [
+            {
+                "title": "核心热点态势",
+                "html": "当前运行未生成 AI 热点分析。",
+                "text": "当前运行未生成 AI 热点分析。",
+            }
+        ]
+
+    def _load_runtime_analysis_data(self):
+        analyzer = NewsAnalyzer(load_config())
+
+        analysis_data = analyzer._load_analysis_data(quiet=True)
+        if not analysis_data:
+            raise RuntimeError("未找到可用于 AI 分析的热榜数据")
+
+        (
+            all_results,
+            id_to_name,
+            title_info,
+            new_titles,
+            word_groups,
+            filter_words,
+            global_filters,
+        ) = analysis_data
+
+        mode = analyzer.report_mode
+        stats, total_titles = analyzer.ctx.count_frequency(
+            all_results,
+            word_groups,
+            filter_words,
+            id_to_name,
+            title_info,
+            new_titles,
+            mode=mode,
+            global_filters=global_filters,
+            quiet=True,
+        )
+
+        rss_items = None
+        raw_rss_items = None
+        if analyzer.ctx.rss_enabled:
+            rss_items, _, raw_rss_items = analyzer._crawl_rss_data()
+
+        standalone_data = analyzer._prepare_standalone_data(
+            all_results,
+            id_to_name,
+            title_info,
+            raw_rss_items,
+        )
+
+        mode_strategy = analyzer._get_mode_strategy()
+        ai_result = analyzer._run_ai_analysis(
+            stats=stats,
+            rss_items=rss_items,
+            mode=mode,
+            report_type=mode_strategy["report_type"],
+            id_to_name=id_to_name,
+            current_results=all_results,
+            schedule=analyzer.ctx.create_scheduler().resolve(),
+            standalone_data=standalone_data,
+        )
+
+        if ai_result is None:
+            raise RuntimeError("当前配置未启用 AI 分析或调度器禁止本时段分析")
+
+        report_data = analyzer.ctx.prepare_report(
+            stats,
+            failed_ids=None,
+            new_titles=new_titles,
+            id_to_name=id_to_name,
+            mode=mode,
+        )
+        screen_payload = analyzer.ctx.build_screen_data(
+            report_data=report_data,
+            total_titles=total_titles,
+            mode=mode,
+            rss_items=rss_items,
+            ai_analysis=ai_result,
+        )
+        return analyzer, ai_result, screen_payload
+
+    def _reanalyze_ai(self):
+        try:
+            _, ai_result, screen_payload = self._load_runtime_analysis_data()
+            panels = self._build_ai_panel_payload(ai_result)
+            payload = {
+                "success": bool(ai_result.success),
+                "panels": panels,
+                "screen_payload": screen_payload,
+                "meta": {
+                    "updated_at": datetime.now().isoformat(timespec="seconds"),
+                    "model": getattr(ai_result, "ai_mode", "") or "",
+                    "total_news": getattr(ai_result, "total_news", 0),
+                    "analyzed_news": getattr(ai_result, "analyzed_news", 0),
+                },
+            }
+            if not ai_result.success:
+                payload["error"] = ai_result.error or "AI 分析失败"
+                self._send_json(500, payload)
+                return
+
+            self._send_json(200, payload)
+        except Exception as exc:
+            traceback.print_exc()
+            self._send_json(500, {"success": False, "error": str(exc)})
 
     def _send_keywords(self):
         try:

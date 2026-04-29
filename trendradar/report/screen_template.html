@@ -514,6 +514,33 @@
       font-size: 12px;
     }
 
+    .panel-action-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      cursor: pointer;
+      border: 1px solid rgba(0, 212, 255, 0.18);
+      font-size: 16px;
+      line-height: 1;
+      color: #a0d8ef;
+      background: rgba(0, 212, 255, 0.08);
+      transition: all 0.2s ease;
+    }
+
+    .panel-action-btn:hover:not(:disabled) {
+      background: rgba(0, 212, 255, 0.16);
+      border-color: rgba(0, 212, 255, 0.3);
+      color: var(--primary);
+    }
+
+    .panel-action-btn:disabled {
+      cursor: wait;
+      opacity: 0.7;
+    }
+
     .panel-body {
       flex: 1;
       min-height: 0;
@@ -539,6 +566,15 @@
       border: 1px solid rgba(0, 212, 255, 0.08);
     }
 
+    .analysis-block.is-revealing {
+      animation: fadeRise 0.45s ease forwards;
+    }
+
+    .analysis-block.is-loading {
+      border-color: rgba(0, 212, 255, 0.18);
+      box-shadow: inset 0 0 18px rgba(0, 212, 255, 0.05);
+    }
+
     .analysis-title {
       font-size: 14px;
       font-weight: 700;
@@ -550,11 +586,23 @@
       color: var(--text-soft);
       font-size: 13px;
       line-height: 1.72;
+      white-space: normal;
     }
 
     .analysis-html strong {
       color: var(--text);
       font-weight: 700;
+    }
+
+    .analysis-error {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 107, 107, 0.2);
+      background: rgba(255, 107, 107, 0.08);
+      color: #ffb2b2;
+      font-size: 12px;
+      line-height: 1.6;
     }
 
     .center-shell {
@@ -1096,15 +1144,35 @@
                     <div class="panel-title">AI 热点分析</div>
                   </div>
                 </div>
+                <button
+                  class="panel-action-btn"
+                  type="button"
+                  :disabled="isAiRefreshing"
+                  @click="refreshAiAnalysis"
+                  aria-label="重新分析"
+                  title="重新分析"
+                >
+                  <i v-if="isAiRefreshing" class="fa-solid fa-arrows-rotate refresh-icon-spin"></i>
+                  <span v-else>✦</span>
+                </button>
               </div>
             </div>
             <div class="panel-body">
               <div class="analysis-list">
-                <article class="analysis-block" v-for="panel in aiPanels" :key="panel.title">
+                <article
+                  class="analysis-block"
+                  :class="{
+                    'is-loading': isAiRefreshing && !panel.html,
+                    'is-revealing': panel.isRevealing,
+                  }"
+                  v-for="panel in aiPanels"
+                  :key="panel.title"
+                >
                   <div class="analysis-title">{{ panel.title }}</div>
                   <div class="analysis-html" v-html="panel.html"></div>
                 </article>
               </div>
+              <div class="analysis-error" v-if="aiRefreshError">{{ aiRefreshError }}</div>
             </div>
           </section>
         </div>
@@ -1705,6 +1773,8 @@
         })
         const autoRefresh = ref(true)
         const searchKeyword = ref('')
+        const isAiRefreshing = ref(false)
+        const aiRefreshError = ref('')
 
         let chartInstance = null
         let clockTimer = null
@@ -1800,6 +1870,50 @@
           dashboard.rssState = nextDashboard.rssState
           dashboard.meta = nextDashboard.meta
           dashboard.stats = nextDashboard.stats
+        }
+
+        function normalizeAiPanels(panels) {
+          if (!Array.isArray(panels) || !panels.length) {
+            return [
+              {
+                title: '核心热点态势',
+                html: '当前运行未生成 AI 热点分析。',
+                isRevealing: false,
+              },
+            ]
+          }
+
+          return panels.map((panel) => ({
+            title: panel.title || 'AI 分析',
+            html: panel.html || '',
+            isRevealing: false,
+          }))
+        }
+
+        function createLoadingAiPanels() {
+          return [
+            { title: '核心热点态势', html: '', isRevealing: false },
+            { title: '舆论风向争议', html: '', isRevealing: false },
+            { title: '异动与弱信号', html: '', isRevealing: false },
+          ]
+        }
+
+        async function revealAiPanels(panels) {
+          dashboard.aiPanels = []
+          for (const panel of panels) {
+            dashboard.aiPanels = [
+              ...dashboard.aiPanels,
+              {
+                ...panel,
+                isRevealing: true,
+              },
+            ]
+            await new Promise((resolve) => window.setTimeout(resolve, 140))
+            const current = dashboard.aiPanels[dashboard.aiPanels.length - 1]
+            if (current) {
+              current.isRevealing = false
+            }
+          }
         }
 
         function updateCounters(nextStats) {
@@ -1934,9 +2048,13 @@
           })
         }
 
-        async function refreshScreenData() {
+        async function refreshScreenData(options = {}) {
           if (isRefreshing) return
+          const { showAiLoading = false } = options
           isRefreshing = true
+          if (showAiLoading) {
+            isAiRefreshing.value = true
+          }
 
           try {
             const response = await fetch(`./screen-data.json?t=${Date.now()}`, {
@@ -1970,6 +2088,65 @@
             console.warn('静默刷新 screen-data.json 失败:', error)
           } finally {
             isRefreshing = false
+            if (showAiLoading) {
+              isAiRefreshing.value = false
+            }
+          }
+        }
+
+        async function refreshAiAnalysis() {
+          if (isAiRefreshing.value) return
+
+          isAiRefreshing.value = true
+          aiRefreshError.value = ''
+          dashboard.aiPanels = createLoadingAiPanels()
+
+          try {
+            const response = await fetch('/api/ai-analysis/reanalyze', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                requested_at: new Date().toISOString(),
+              }),
+            })
+
+            const payload = await response.json().catch(() => ({}))
+            if (!response.ok || !payload.success) {
+              throw new Error(payload.error || `AI reanalyze ${response.status}`)
+            }
+
+            if (payload.screen_payload) {
+              const nextDashboard = adaptDashboardData(payload.screen_payload)
+              assignDashboardData(nextDashboard)
+              updateCounters(nextDashboard.stats)
+
+              if (!nextDashboard.newsByCategory[selectedCategory.value]) {
+                selectedCategory.value = '全部资讯'
+                selectedKeyword.value = ''
+              }
+              if (currentPage.value > totalPages.value) {
+                currentPage.value = 1
+              }
+            }
+
+            const nextPanels = normalizeAiPanels(payload.panels)
+            await revealAiPanels(nextPanels)
+
+            nextTick(() => {
+              updateCategoryIndicator()
+              updateChart()
+              if (chartInstance) {
+                chartInstance.resize()
+              }
+            })
+          } catch (error) {
+            console.warn('重新执行 AI 热点分析失败:', error)
+            aiRefreshError.value = error?.message || '重新分析失败，请稍后重试。'
+            dashboard.aiPanels = normalizeAiPanels(rawMockApi.ai_panels)
+          } finally {
+            isAiRefreshing.value = false
           }
         }
 
@@ -2049,10 +2226,12 @@
           clockParts,
           currentPage,
           filteredNews,
+          aiRefreshError,
           keywordCloud,
           meta,
           nextPage,
           prevPage,
+          refreshAiAnalysis,
           rssState,
           selectCategory,
           selectKeyword,
@@ -2060,6 +2239,7 @@
           selectedKeyword,
           searchKeyword,
           applySearch,
+          isAiRefreshing,
           sourceChartRef,
           statsCards,
           toggleAutoRefresh,
