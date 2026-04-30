@@ -50,6 +50,32 @@ def _put_conn(conn):
     _get_pool().putconn(conn)
 
 
+def _normalize_text(value: Any) -> str:
+    """Convert values destined for TEXT columns into safe strings."""
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _normalize_keywords(value: Any) -> List[str]:
+    """Normalize keyword values for PostgreSQL TEXT[] insertion."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, (list, tuple, set)):
+        values = list(value)
+    else:
+        values = [value]
+
+    keywords = []
+    for item in values:
+        text = _normalize_text(item).strip()
+        if text and text not in keywords:
+            keywords.append(text)
+    return keywords
+
+
 def save_articles(articles: List[Dict[str, Any]]) -> int:
     """
     批量保存新闻资讯（标题去重）。
@@ -68,32 +94,47 @@ def save_articles(articles: List[Dict[str, Any]]) -> int:
     conn = _get_conn()
     saved = 0
     try:
+        # Clear any failed transaction state before reusing a pooled connection.
+        conn.rollback()
         with conn.cursor() as cur:
             for article in articles:
+                title = _normalize_text(article.get("title")).strip()
+                if not title:
+                    continue
+
+                savepoint_created = False
                 try:
+                    cur.execute("SAVEPOINT save_article")
+                    savepoint_created = True
                     cur.execute(
                         """
                         INSERT INTO news_articles (title, source_name, source_url, published_at,
                                                    category_l1, category_l2, keywords, crawl_time)
                         VALUES (%(title)s, %(source_name)s, %(source_url)s, %(published_at)s,
                                 %(category_l1)s, %(category_l2)s, %(keywords)s, %(crawl_time)s)
-                        ON CONFLICT (title) DO NOTHING
+                        ON CONFLICT ((md5(title))) DO NOTHING
                         """,
                         {
-                            "title": article.get("title", ""),
-                            "source_name": article.get("source_name", ""),
-                            "source_url": article.get("source_url", ""),
+                            "title": title,
+                            "source_name": _normalize_text(article.get("source_name")),
+                            "source_url": _normalize_text(article.get("source_url")),
                             "published_at": article.get("published_at"),
-                            "category_l1": article.get("category_l1", ""),
-                            "category_l2": article.get("category_l2", ""),
-                            "keywords": article.get("keywords", []),
+                            "category_l1": _normalize_text(article.get("category_l1")),
+                            "category_l2": _normalize_text(article.get("category_l2")),
+                            "keywords": _normalize_keywords(article.get("keywords")),
                             "crawl_time": article.get("crawl_time") or datetime.now(),
                         },
                     )
                     if cur.rowcount > 0:
                         saved += 1
+                    cur.execute("RELEASE SAVEPOINT save_article")
                 except Exception as e:
-                    logger.warning(f"保存文章失败: {article.get('title', '')[:50]}... - {e}")
+                    if savepoint_created:
+                        cur.execute("ROLLBACK TO SAVEPOINT save_article")
+                        cur.execute("RELEASE SAVEPOINT save_article")
+                    else:
+                        conn.rollback()
+                    logger.warning(f"保存文章失败: {title[:50]}... - {e}")
             conn.commit()
     except Exception as e:
         conn.rollback()
@@ -197,6 +238,7 @@ def query_articles(
 
         return rows, total
     except Exception as e:
+        conn.rollback()
         logger.error(f"查询资讯失败: {e}")
         raise
     finally:
@@ -220,6 +262,7 @@ def get_all_keywords() -> List[str]:
         cur.close()
         return keywords
     except Exception as e:
+        conn.rollback()
         logger.error(f"获取关键词列表失败: {e}")
         return []
     finally:
@@ -243,6 +286,7 @@ def table_exists() -> bool:
         cur.close()
         return exists
     except Exception:
+        conn.rollback()
         return False
     finally:
         _put_conn(conn)

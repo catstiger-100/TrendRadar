@@ -10,6 +10,7 @@ import argparse
 import os
 import re
 import webbrowser
+from datetime import timedelta
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
@@ -21,7 +22,8 @@ from trendradar.core import load_config
 from trendradar.core.analyzer import convert_keyword_stats_to_platform_stats
 from trendradar.crawler import DataFetcher
 from trendradar.storage import convert_crawl_results_to_news_data
-from trendradar.utils.time import DEFAULT_TIMEZONE, is_within_days, calculate_days_old
+from trendradar.utils.similarity import find_best_fuzzy_match
+from trendradar.utils.time import DEFAULT_TIMEZONE, calculate_days_old
 from trendradar.ai import AIAnalyzer, AIAnalysisResult
 from trendradar.core.scheduler import ResolvedSchedule
 from trendradar.core.frequency import parse_frequency_words_for_display
@@ -295,6 +297,86 @@ class NewsAnalyzer:
         except Exception as e:
             print(f"版本检查出错: {e}")
 
+    def _get_fuzzy_dedup_config(self) -> Dict:
+        """获取模糊查重配置。"""
+        return self.ctx.config.get("FUZZY_DEDUP", {})
+
+    def _load_recent_titles_for_fuzzy_dedup(self, history_days: int) -> Dict[str, List[str]]:
+        """读取近 N 天的历史标题，用于抓取阶段模糊查重。"""
+        if history_days <= 0:
+            return {}
+
+        historical_titles: Dict[str, List[str]] = {}
+        now = self.ctx.get_time()
+
+        for offset in range(history_days):
+            target_date = (now - timedelta(days=offset)).strftime("%Y-%m-%d")
+            news_data = self.storage_manager.get_today_all_data(target_date)
+            if not news_data or not news_data.items:
+                continue
+
+            for source_id, news_list in news_data.items.items():
+                bucket = historical_titles.setdefault(source_id, [])
+                for item in news_list:
+                    if item.title not in bucket:
+                        bucket.append(item.title)
+
+        return historical_titles
+
+    def _apply_fuzzy_dedup_to_results(
+        self,
+        results: Dict,
+        historical_titles: Dict[str, List[str]],
+        similarity_threshold: float,
+    ) -> Dict:
+        """对新抓取结果执行模糊查重，并将命中项折叠到已存在标题下。"""
+        deduped_results = {}
+        merged_count = 0
+
+        for source_id, titles_data in results.items():
+            deduped_titles = {}
+            candidate_titles: List[str] = list(historical_titles.get(source_id, []))
+
+            for title, title_data in titles_data.items():
+                matched_title, _ = find_best_fuzzy_match(
+                    title,
+                    candidate_titles,
+                    similarity_threshold,
+                )
+
+                if matched_title:
+                    print(f"[模糊查重][抓取] 平台 {source_id}: '{title[:40]}' -> '{matched_title[:40]}'")
+                    if matched_title in deduped_titles:
+                        existing = deduped_titles[matched_title]
+                        existing["ranks"].extend(title_data.get("ranks", []))
+                        existing["ranks"] = sorted(set(existing["ranks"]))
+                        if not existing.get("url") and title_data.get("url"):
+                            existing["url"] = title_data.get("url", "")
+                        if not existing.get("mobileUrl") and title_data.get("mobileUrl"):
+                            existing["mobileUrl"] = title_data.get("mobileUrl", "")
+                    else:
+                        deduped_titles[matched_title] = {
+                            "ranks": list(title_data.get("ranks", [])),
+                            "url": title_data.get("url", ""),
+                            "mobileUrl": title_data.get("mobileUrl", ""),
+                        }
+                        candidate_titles.append(matched_title)
+                    merged_count += 1
+                    continue
+
+                deduped_titles[title] = {
+                    "ranks": list(title_data.get("ranks", [])),
+                    "url": title_data.get("url", ""),
+                    "mobileUrl": title_data.get("mobileUrl", ""),
+                }
+                candidate_titles.append(title)
+
+            deduped_results[source_id] = deduped_titles
+
+        if merged_count > 0:
+            print(f"[模糊查重] 抓取阶段折叠了 {merged_count} 条相似标题")
+        return deduped_results
+
     def _get_mode_strategy(self) -> Dict:
         """获取当前模式的策略配置"""
         return self.MODE_STRATEGIES.get(self.report_mode, self.MODE_STRATEGIES["daily"])
@@ -384,6 +466,8 @@ class NewsAnalyzer:
                     mode="incremental",
                     global_filters=global_filters,
                     quiet=True,
+                    fuzzy_dedup_enabled=self.ctx.config.get("FUZZY_DEDUP", {}).get("ENABLED", False),
+                    fuzzy_similarity_threshold=self.ctx.config.get("FUZZY_DEDUP", {}).get("SIMILARITY_THRESHOLD", 90.0),
                 )
 
                 # 如果是 platform 模式，转换数据结构
@@ -424,6 +508,8 @@ class NewsAnalyzer:
                     mode=ai_mode,
                     global_filters=global_filters,
                     quiet=True,
+                    fuzzy_dedup_enabled=self.ctx.config.get("FUZZY_DEDUP", {}).get("ENABLED", False),
+                    fuzzy_similarity_threshold=self.ctx.config.get("FUZZY_DEDUP", {}).get("SIMILARITY_THRESHOLD", 90.0),
                 )
 
                 # 如果是 platform 模式，转换数据结构
@@ -813,6 +899,8 @@ class NewsAnalyzer:
             mode=mode,
             global_filters=global_filters,
             quiet=quiet,
+            fuzzy_dedup_enabled=self.ctx.config.get("FUZZY_DEDUP", {}).get("ENABLED", False),
+            fuzzy_similarity_threshold=self.ctx.config.get("FUZZY_DEDUP", {}).get("SIMILARITY_THRESHOLD", 90.0),
         )
         screen_stats = [stat.copy() for stat in stats]
 
@@ -1081,6 +1169,16 @@ class NewsAnalyzer:
         results, id_to_name, failed_ids = self.data_fetcher.crawl_websites(
             ids, self.request_interval
         )
+
+        fuzzy_dedup = self._get_fuzzy_dedup_config()
+        if fuzzy_dedup.get("ENABLED", False):
+            results = self._apply_fuzzy_dedup_to_results(
+                results,
+                self._load_recent_titles_for_fuzzy_dedup(
+                    fuzzy_dedup.get("HISTORY_DAYS", 1)
+                ),
+                fuzzy_dedup.get("SIMILARITY_THRESHOLD", 90.0),
+            )
 
         # 转换为 NewsData 格式并保存到存储后端
         crawl_time = self.ctx.format_time()

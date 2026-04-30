@@ -84,6 +84,7 @@ def _load_crawler_config(config_data: Dict) -> Dict:
 def _load_report_config(config_data: Dict) -> Dict:
     """加载报告配置"""
     report_config = config_data.get("report", {})
+    dedup_config = report_config.get("fuzzy_dedup", {})
 
     # 环境变量覆盖
     sort_by_position_env = _get_env_bool("SORT_BY_POSITION_FIRST")
@@ -95,6 +96,11 @@ def _load_report_config(config_data: Dict) -> Dict:
         "RANK_THRESHOLD": report_config.get("rank_threshold", 10),
         "SORT_BY_POSITION_FIRST": sort_by_position_env if sort_by_position_env is not None else report_config.get("sort_by_position_first", False),
         "MAX_NEWS_PER_KEYWORD": max_news_env or report_config.get("max_news_per_keyword", 0),
+        "FUZZY_DEDUP": {
+            "ENABLED": dedup_config.get("enabled", False),
+            "SIMILARITY_THRESHOLD": float(dedup_config.get("similarity_threshold", 90)),
+            "HISTORY_DAYS": int(dedup_config.get("history_days", 1)),
+        },
     }
 
 

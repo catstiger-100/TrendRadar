@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS news_articles (
 );
 
 -- 标题唯一约束
-CREATE UNIQUE INDEX IF NOT EXISTS idx_news_articles_title ON news_articles (title);
+-- 长标题可能超过 PostgreSQL btree 单索引项大小限制，使用 MD5 表达式索引去重。
+DROP INDEX IF EXISTS idx_news_articles_title;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_news_articles_title_md5 ON news_articles (md5(title));
 
 -- 中文全文检索索引（zhparser 分词）
 CREATE INDEX IF NOT EXISTS idx_news_articles_title_fts ON news_articles

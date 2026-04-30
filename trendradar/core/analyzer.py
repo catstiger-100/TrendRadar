@@ -8,9 +8,10 @@
 - count_word_frequency: 统计词频
 """
 
-from typing import Dict, List, Tuple, Optional, Callable
+from typing import Dict, List, Tuple, Optional, Callable, Set
 
 from trendradar.core.frequency import matches_word_groups, _word_matches
+from trendradar.utils.similarity import find_best_fuzzy_match
 from trendradar.utils.time import DEFAULT_TIMEZONE
 
 
@@ -104,6 +105,8 @@ def count_word_frequency(
     is_first_crawl_func: Optional[Callable[[], bool]] = None,
     convert_time_func: Optional[Callable[[str], str]] = None,
     quiet: bool = False,
+    fuzzy_dedup_enabled: bool = False,
+    fuzzy_similarity_threshold: float = 90.0,
 ) -> Tuple[List[Dict], int]:
     """
     统计词频，支持必须词、频率词、过滤词、全局过滤词，并标记新增标题
@@ -211,6 +214,7 @@ def count_word_frequency(
     word_stats = {}
     total_titles = 0
     processed_titles = {}
+    global_processed_titles: Set[str] = set()
     matched_new_count = 0
 
     if title_info is None:
@@ -231,6 +235,17 @@ def count_word_frequency(
         for title, title_data in titles_data.items():
             if title in processed_titles.get(source_id, {}):
                 continue
+
+            if fuzzy_dedup_enabled and global_processed_titles:
+                matched_title, _ = find_best_fuzzy_match(
+                    title,
+                    global_processed_titles,
+                    fuzzy_similarity_threshold,
+                )
+                if matched_title:
+                    if not quiet:
+                        print(f"[模糊查重][展示] '{title[:40]}' -> '{matched_title[:40]}'")
+                    continue
 
             # 使用统一的匹配逻辑
             matches_frequency_words = matches_word_groups(
@@ -379,6 +394,7 @@ def count_word_frequency(
                 if source_id not in processed_titles:
                     processed_titles[source_id] = {}
                 processed_titles[source_id][title] = True
+                global_processed_titles.add(title)
 
                 break
 
