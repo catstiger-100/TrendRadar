@@ -34,7 +34,21 @@ done
 
 echo "✅ 旧容器已清理"
 
-# 3. 从本地源码构建镜像并启动
+# 3. 构建前端 console
+CONSOLE_DIR="$SCRIPT_DIR/../console"
+echo ""
+echo "📦 构建前端 console..."
+if [ -d "$CONSOLE_DIR" ]; then
+  cd "$CONSOLE_DIR"
+  npm install --quiet
+  npm run build
+  cd "$SCRIPT_DIR"
+  echo "✅ console 构建完成"
+else
+  echo "⚠️  console 目录不存在，跳过前端构建"
+fi
+
+# 4. 从本地源码构建镜像并启动
 echo ""
 echo "🔨 构建镜像（利用缓存，依赖不重新安装）..."
 $DOCKER_COMPOSE build
@@ -43,7 +57,7 @@ echo ""
 echo "🚀 启动服务..."
 $DOCKER_COMPOSE up -d
 
-# 4. 显示状态
+# 5. 显示状态
 echo ""
 echo "✅ 重启完成，当前状态："
 $DOCKER_COMPOSE ps
