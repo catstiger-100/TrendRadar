@@ -119,10 +119,10 @@ def save_articles(articles: List[Dict[str, Any]]) -> int:
                                                    category_l1, category_l2, keywords, crawl_time, crawl_count)
                         VALUES (%(title)s, %(source_name)s, %(source_url)s, %(published_at)s,
                                 %(category_l1)s, %(category_l2)s, %(keywords)s, %(crawl_time)s, %(crawl_count)s)
-                        ON CONFLICT (title) DO UPDATE SET
+                        ON CONFLICT ((md5(title))) DO UPDATE SET
                             crawl_count = GREATEST(news_articles.crawl_count, EXCLUDED.crawl_count),
                             crawl_time = EXCLUDED.crawl_time
-                        """,
+""",
                         {
                             "title": title,
                             "source_name": _normalize_text(article.get("source_name")),

@@ -408,38 +408,7 @@ async function submit() {
   }
 
   .login-card__intro {
-    border-right: 0;
-    border-bottom: 1px solid rgba(0, 212, 255, 0.12);
-    padding: 28px 22px 24px;
-  }
-
-  .intro-header {
-    margin-bottom: 22px;
-  }
-
-  .intro-header__title {
-    font-size: 22px;
-  }
-
-  .intro-features {
-    gap: 12px;
-  }
-
-  .intro-feature {
-    padding: 12px;
-    gap: 10px;
-  }
-
-  .intro-feature__body strong {
-    font-size: 14px;
-  }
-
-  .intro-feature__body span {
-    font-size: 12px;
-  }
-
-  .intro-footer {
-    margin-top: 20px;
+    display: none;
   }
 
   .login-card__form {
