@@ -11,12 +11,13 @@ import os
 import shutil
 import zipfile
 import traceback
+from http import cookies
 from datetime import datetime
 from email.parser import BytesParser
 from email.policy import default
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from xml.etree import ElementTree
 
 from trendradar.__main__ import NewsAnalyzer
@@ -27,16 +28,19 @@ from trendradar.core.frequency import (
     convert_keyword_markdown_to_frequency_text,
     parse_frequency_words_for_display,
 )
+from trendradar.storage import auth_repository
 
 
 OUTPUT_DIR = Path(os.environ.get("WEBSERVER_DIR", "/app/output"))
 CONFIG_DIR = Path(os.environ.get("CONFIG_DIR", "/app/config"))
+CONSOLE_DIR = Path(os.environ.get("CONSOLE_DIST_DIR", "/app/console-dist"))
 FREQUENCY_WORDS_PATH = Path(
     os.environ.get("FREQUENCY_WORDS_PATH", str(CONFIG_DIR / "frequency_words.txt"))
 )
 BACKUP_DIR = Path(os.environ.get("FREQUENCY_BACKUP_DIR", str(CONFIG_DIR / "backups")))
 ADMIN_HTML_PATH = Path(__file__).resolve().parent / "static" / "admin.html"
 XLSX_NS = {"main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+AUTH_COOKIE_NAME = os.environ.get("AUTH_COOKIE_NAME", "trendradar_console_session")
 
 
 def _xlsx_column_name(cell_ref):
@@ -133,14 +137,24 @@ def _xlsx_to_markdown(content):
 
 class AdminRequestHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
+        self._extra_headers = []
         super().__init__(*args, directory=str(OUTPUT_DIR), **kwargs)
 
     def end_headers(self):
         self.send_header("Cache-Control", "no-store")
+        for key, value in self._extra_headers:
+            self.send_header(key, value)
+        self._extra_headers = []
         super().end_headers()
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if path == "/console" or path == "/console/":
+            self._serve_console_index()
+            return
+        if path.startswith("/console/"):
+            if self._serve_console_asset(path):
+                return
         if path == "/admin.html":
             self._serve_admin_html()
             return
@@ -156,7 +170,24 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/news/keywords-list":
             self._send_news_keywords_list()
             return
+        if path == "/api/auth/me":
+            self._send_auth_me()
+            return
+        if path == "/api/roles":
+            self._send_roles()
+            return
+        if path == "/api/users":
+            self._send_users()
+            return
         super().do_GET()
+
+    def translate_path(self, path):
+        parsed_path = urlparse(path).path
+        if parsed_path.startswith("/console/"):
+            relative = parsed_path.removeprefix("/console/").strip("/")
+            if relative:
+                return str((CONSOLE_DIR / relative).resolve())
+        return super().translate_path(path)
 
     def do_POST(self):
         path = urlparse(self.path).path
@@ -165,6 +196,41 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
             return
         if path == "/api/ai-analysis/reanalyze":
             self._reanalyze_ai()
+            return
+        if path == "/api/auth/login":
+            self._login()
+            return
+        if path == "/api/auth/logout":
+            self._logout()
+            return
+        if path == "/api/auth/change-password":
+            self._change_password()
+            return
+        if path == "/api/roles":
+            self._create_role()
+            return
+        if path == "/api/users":
+            self._create_user()
+            return
+        self.send_error(404, "Not Found")
+
+    def do_PUT(self):
+        path = urlparse(self.path).path
+        if path.startswith("/api/roles/"):
+            self._update_role(path)
+            return
+        if path.startswith("/api/users/"):
+            self._update_user(path)
+            return
+        self.send_error(404, "Not Found")
+
+    def do_DELETE(self):
+        path = urlparse(self.path).path
+        if path.startswith("/api/roles/"):
+            self._delete_role(path)
+            return
+        if path.startswith("/api/users/"):
+            self._delete_user(path)
             return
         self.send_error(404, "Not Found")
 
@@ -179,6 +245,38 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _serve_console_index(self):
+        index_path = CONSOLE_DIR / "index.html"
+        if not index_path.exists():
+            self.send_error(404, "console index not found")
+            return
+        data = index_path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _serve_console_asset(self, path):
+        relative = path.removeprefix("/console/").strip("/")
+        if not relative:
+            self._serve_console_index()
+            return True
+
+        asset_path = (CONSOLE_DIR / relative).resolve()
+        console_root = CONSOLE_DIR.resolve()
+        if console_root not in asset_path.parents and asset_path != console_root:
+            self.send_error(403, "Forbidden")
+            return True
+
+        if asset_path.is_file():
+            super().do_GET()
+            return True
+
+        # Support history routing under /console.
+        self._serve_console_index()
+        return True
+
     def _send_json(self, status, payload):
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
@@ -186,6 +284,69 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def _read_json_body(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        if length <= 0:
+            return {}
+        body = self.rfile.read(length)
+        if not body:
+            return {}
+        try:
+            return json.loads(body.decode("utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError("请求体不是合法的 JSON") from exc
+
+    def _client_ip(self):
+        forwarded = self.headers.get("X-Forwarded-For", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+        return self.client_address[0] if self.client_address else ""
+
+    def _get_session_token(self):
+        cookie_header = self.headers.get("Cookie", "")
+        if not cookie_header:
+            return ""
+        jar = cookies.SimpleCookie()
+        jar.load(cookie_header)
+        morsel = jar.get(AUTH_COOKIE_NAME)
+        return morsel.value if morsel else ""
+
+    def _set_session_cookie(self, token):
+        cookie = cookies.SimpleCookie()
+        cookie[AUTH_COOKIE_NAME] = token
+        cookie[AUTH_COOKIE_NAME]["path"] = "/"
+        cookie[AUTH_COOKIE_NAME]["httponly"] = True
+        cookie[AUTH_COOKIE_NAME]["samesite"] = "Lax"
+        if self.headers.get("X-Forwarded-Proto", "").lower() == "https":
+            cookie[AUTH_COOKIE_NAME]["secure"] = True
+        self._extra_headers.append(("Set-Cookie", cookie.output(header="").strip()))
+
+    def _clear_session_cookie(self):
+        cookie = cookies.SimpleCookie()
+        cookie[AUTH_COOKIE_NAME] = ""
+        cookie[AUTH_COOKIE_NAME]["path"] = "/"
+        cookie[AUTH_COOKIE_NAME]["expires"] = "Thu, 01 Jan 1970 00:00:00 GMT"
+        cookie[AUTH_COOKIE_NAME]["max-age"] = 0
+        cookie[AUTH_COOKIE_NAME]["httponly"] = True
+        cookie[AUTH_COOKIE_NAME]["samesite"] = "Lax"
+        self._extra_headers.append(("Set-Cookie", cookie.output(header="").strip()))
+
+    def _require_auth(self):
+        token = self._get_session_token()
+        user = auth_repository.get_session_user(token)
+        if not user:
+            self._clear_session_cookie()
+            self._send_json(401, {"error": "未登录或登录已失效"})
+            return None
+        return user
+
+    def _parse_id_from_path(self, path, prefix):
+        value = path.removeprefix(prefix).strip("/")
+        try:
+            return int(value)
+        except ValueError as exc:
+            raise ValueError("无效的 ID") from exc
 
     def _build_ai_panel_payload(self, result: AIAnalysisResult):
         if not result or not getattr(result, "success", False):
@@ -408,7 +569,6 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         """分页查询资讯（支持关键词和日期筛选）。"""
         try:
             from trendradar.storage.news_repository import query_articles
-            from urllib.parse import parse_qs
 
             query = parse_qs(urlparse(self.path).query)
             keyword = query.get("keyword", [None])[0]
@@ -471,13 +631,184 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 
+    def _send_auth_me(self):
+        user = self._require_auth()
+        if not user:
+            return
+        self._send_json(200, {"user": user})
+
+    def _login(self):
+        try:
+            payload = self._read_json_body()
+            result = auth_repository.authenticate_user(
+                username=payload.get("username", ""),
+                password=payload.get("password", ""),
+                login_ip=self._client_ip(),
+                user_agent=self.headers.get("User-Agent", ""),
+            )
+            self._set_session_cookie(result["session_token"])
+            self._send_json(200, {"user": result["user"], "expires_at": result["expires_at"]})
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _logout(self):
+        try:
+            token = self._get_session_token()
+            auth_repository.logout_session(token)
+            self._clear_session_cookie()
+            self._send_json(200, {"message": "已退出登录"})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _change_password(self):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            payload = self._read_json_body()
+            auth_repository.change_password(
+                user_id=user["id"],
+                old_password=payload.get("old_password", ""),
+                new_password=payload.get("new_password", ""),
+            )
+            self._clear_session_cookie()
+            self._send_json(200, {"message": "密码修改成功，请重新登录"})
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _send_roles(self):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            self._send_json(200, {"items": auth_repository.list_roles()})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _create_role(self):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            payload = self._read_json_body()
+            item = auth_repository.create_role(
+                name=payload.get("name", ""),
+                description=payload.get("description", ""),
+            )
+            self._send_json(201, {"item": item})
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _update_role(self, path):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            role_id = self._parse_id_from_path(path, "/api/roles/")
+            payload = self._read_json_body()
+            item = auth_repository.update_role(
+                role_id=role_id,
+                name=payload.get("name", ""),
+                description=payload.get("description", ""),
+            )
+            self._send_json(200, {"item": item})
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _delete_role(self, path):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            role_id = self._parse_id_from_path(path, "/api/roles/")
+            auth_repository.delete_role(role_id)
+            self._send_json(200, {"message": "角色已删除"})
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _send_users(self):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            self._send_json(200, {"items": auth_repository.list_users()})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _create_user(self):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            payload = self._read_json_body()
+            item = auth_repository.create_user(
+                username=payload.get("username", ""),
+                password=payload.get("password", ""),
+                full_name=payload.get("full_name", ""),
+                role_ids=payload.get("role_ids", []),
+                is_active=payload.get("is_active", True),
+            )
+            self._send_json(201, {"item": item})
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _update_user(self, path):
+        current_user = self._require_auth()
+        if not current_user:
+            return
+        try:
+            user_id = self._parse_id_from_path(path, "/api/users/")
+            payload = self._read_json_body()
+            item = auth_repository.update_user(
+                user_id=user_id,
+                username=payload.get("username", ""),
+                full_name=payload.get("full_name", ""),
+                role_ids=payload.get("role_ids", []),
+                is_active=payload.get("is_active", True),
+                password=payload.get("password", ""),
+            )
+            self._send_json(200, {"item": item})
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _delete_user(self, path):
+        current_user = self._require_auth()
+        if not current_user:
+            return
+        try:
+            user_id = self._parse_id_from_path(path, "/api/users/")
+            if current_user["id"] == user_id:
+                raise ValueError("不能删除当前登录用户")
+            auth_repository.delete_user(user_id)
+            self._send_json(200, {"message": "用户已删除"})
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
 
 def run(host="0.0.0.0", port=8080):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    auth_repository.ensure_schema()
     server = ThreadingHTTPServer((host, port), AdminRequestHandler)
     print(f"TrendRadar 管理服务已启动: http://{host}:{port}")
     print(f"报告目录: {OUTPUT_DIR}")
     print(f"关键词文件: {FREQUENCY_WORDS_PATH}")
+    print(f"Console 目录: {CONSOLE_DIR}")
     server.serve_forever()
 
 

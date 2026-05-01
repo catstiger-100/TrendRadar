@@ -502,6 +502,7 @@ def start_webserver():
             print(f"  🌐 访问地址: http://localhost:{WEBSERVER_PORT}")
             print(f"  📄 首页: http://localhost:{WEBSERVER_PORT}/index.html")
             print(f"  🛠️ 管理页: http://localhost:{WEBSERVER_PORT}/admin.html")
+            print(f"  🖥️ Console: http://localhost:{WEBSERVER_PORT}/console")
             print("  💡 停止服务: python manage.py stop_webserver")
         else:
             print(f"  ❌ Web 服务器启动失败")

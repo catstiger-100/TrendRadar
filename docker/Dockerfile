@@ -55,6 +55,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY docker/manage.py .
 COPY trendradar/ ./trendradar/
+COPY console/dist /app/console-dist
 
 # 复制 entrypoint.sh 并强制转换为 LF 格式
 COPY docker/entrypoint.sh /entrypoint.sh.tmp
@@ -66,6 +67,7 @@ RUN sed -i 's/\r$//' /entrypoint.sh.tmp && \
 
 ENV PYTHONUNBUFFERED=1 \
     CONFIG_PATH=/app/config/config.yaml \
-    FREQUENCY_WORDS_PATH=/app/config/frequency_words.txt
+    FREQUENCY_WORDS_PATH=/app/config/frequency_words.txt \
+    CONSOLE_DIST_DIR=/app/console-dist
 
 ENTRYPOINT ["/entrypoint.sh"]
