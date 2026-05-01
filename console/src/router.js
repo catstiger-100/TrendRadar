@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
 import DashboardView from "./views/DashboardView.vue";
 import LoginView from "./views/auth/LoginView.vue";
+import OpinionView from "./views/OpinionView.vue";
 import RolesView from "./views/system/RolesView.vue";
 import UsersView from "./views/system/UsersView.vue";
 import { useSessionStore } from "./stores/session";
@@ -17,6 +18,12 @@ const routes = [
     name: "dashboard",
     component: DashboardView,
     meta: { title: "总览" },
+  },
+  {
+    path: "/opinion",
+    name: "opinion",
+    component: OpinionView,
+    meta: { title: "舆情纵览" },
   },
   {
     path: "/roles",

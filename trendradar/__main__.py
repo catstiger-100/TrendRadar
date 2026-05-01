@@ -997,6 +997,7 @@ class NewsAnalyzer:
                         "category_l2": cat_l2,
                         "keywords": matched_kw,
                         "crawl_time": now,
+                        "crawl_count": title_data.get("count", 1),
                     })
 
             if articles:

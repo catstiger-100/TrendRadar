@@ -170,6 +170,9 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/news/keywords-list":
             self._send_news_keywords_list()
             return
+        if path == "/api/news/sources-list":
+            self._send_news_sources_list()
+            return
         if path == "/api/auth/me":
             self._send_auth_me()
             return
@@ -566,19 +569,21 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
             self._send_json(500, {"error": str(exc)})
 
     def _send_news(self):
-        """分页查询资讯（支持关键词和日期筛选）。"""
+        """分页查询资讯（支持关键词、日期和来源筛选）。"""
         try:
             from trendradar.storage.news_repository import query_articles
 
             query = parse_qs(urlparse(self.path).query)
             keyword = query.get("keyword", [None])[0]
             query_date = query.get("date", [None])[0]
+            source = query.get("source", [None])[0]
             page = int(query.get("page", ["1"])[0])
-            page_size = int(query.get("page_size", ["20"])[0])
+            page_size = int(query.get("page_size", ["200"])[0])
 
             rows, total = query_articles(
                 keyword=keyword,
                 query_date=query_date,
+                source_name=source,
                 page=page,
                 page_size=page_size,
             )
@@ -589,6 +594,15 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
                 "page_size": page_size,
                 "total_pages": max(1, (total + page_size - 1) // page_size),
             })
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _send_news_sources_list(self):
+        """返回所有已存储的来源名称列表（用于筛选下拉框）。"""
+        try:
+            from trendradar.storage.news_repository import get_all_source_names
+            sources = get_all_source_names()
+            self._send_json(200, {"sources": sources})
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 

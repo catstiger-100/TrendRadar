@@ -2,7 +2,7 @@
 import { computed, ref, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { ArrowDown, House, Lock, Menu, Setting, User, UserFilled } from "@element-plus/icons-vue";
+import { ArrowDown, House, List, Lock, Menu, Setting, User, UserFilled } from "@element-plus/icons-vue";
 import { useSessionStore } from "../stores/session";
 
 const collapsed = ref(true);
@@ -15,6 +15,7 @@ const session = useSessionStore();
 
 const menuItems = [
   { key: "dashboard", label: "态势总览", icon: House, route: "/" },
+  { key: "opinion", label: "舆情纵览", icon: List, route: "/opinion" },
 ];
 
 const settingsItems = [

@@ -43,7 +43,13 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
 
 
 def _get_conn():
-    return _get_pool().getconn()
+    conn = _get_pool().getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET timezone = 'Asia/Shanghai'")
+    except Exception:
+        conn.rollback()
+    return conn
 
 
 def _put_conn(conn):
@@ -106,13 +112,16 @@ def save_articles(articles: List[Dict[str, Any]]) -> int:
                 try:
                     cur.execute("SAVEPOINT save_article")
                     savepoint_created = True
+                    crawl_count = int(article.get("crawl_count", 1) or 1)
                     cur.execute(
                         """
                         INSERT INTO news_articles (title, source_name, source_url, published_at,
-                                                   category_l1, category_l2, keywords, crawl_time)
+                                                   category_l1, category_l2, keywords, crawl_time, crawl_count)
                         VALUES (%(title)s, %(source_name)s, %(source_url)s, %(published_at)s,
-                                %(category_l1)s, %(category_l2)s, %(keywords)s, %(crawl_time)s)
-                        ON CONFLICT ((md5(title))) DO NOTHING
+                                %(category_l1)s, %(category_l2)s, %(keywords)s, %(crawl_time)s, %(crawl_count)s)
+                        ON CONFLICT (title) DO UPDATE SET
+                            crawl_count = GREATEST(news_articles.crawl_count, EXCLUDED.crawl_count),
+                            crawl_time = EXCLUDED.crawl_time
                         """,
                         {
                             "title": title,
@@ -123,6 +132,7 @@ def save_articles(articles: List[Dict[str, Any]]) -> int:
                             "category_l2": _normalize_text(article.get("category_l2")),
                             "keywords": _normalize_keywords(article.get("keywords")),
                             "crawl_time": article.get("crawl_time") or datetime.now(),
+                            "crawl_count": crawl_count,
                         },
                     )
                     if cur.rowcount > 0:
@@ -151,6 +161,7 @@ def save_articles(articles: List[Dict[str, Any]]) -> int:
 def query_articles(
     keyword: Optional[str] = None,
     query_date: Optional[str] = None,
+    source_name: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
 ) -> Tuple[List[Dict[str, Any]], int]:
@@ -160,6 +171,7 @@ def query_articles(
     Args:
         keyword: 关键词筛选（使用中文全文检索 + 关键词数组）
         query_date: 日期筛选（YYYY-MM-DD）
+        source_name: 来源筛选
         page: 页码（从 1 开始）
         page_size: 每页条数
 
@@ -185,17 +197,19 @@ def query_articles(
         if query_date:
             try:
                 d = date.fromisoformat(query_date)
+                from datetime import timedelta
+                next_day = d + timedelta(days=1)
                 conditions.append(
                     "published_at >= %(date_start)s AND published_at < %(date_end)s"
                 )
                 params["date_start"] = d.isoformat()
-                params["date_end"] = (d.replace(day=d.day + 1) if False else date(d.year, d.month, d.day).replace(day=d.day + 1) if d.day < 28 else None)
-                # 使用日期范围
-                from datetime import timedelta
-                next_day = d + timedelta(days=1)
                 params["date_end"] = next_day.isoformat()
             except ValueError:
                 pass
+
+        if source_name and source_name.strip():
+            conditions.append("source_name = %(source_name)s")
+            params["source_name"] = source_name.strip()
 
         where_clause = ""
         if conditions:
@@ -213,7 +227,7 @@ def query_articles(
         cur.execute(
             f"""
             SELECT id, title, source_name, source_url, published_at,
-                   category_l1, category_l2, keywords, crawl_time, created_at
+                   category_l1, category_l2, keywords, crawl_time, created_at, crawl_count
             FROM news_articles
             {where_clause}
             ORDER BY published_at DESC NULLS LAST, created_at DESC
@@ -224,7 +238,7 @@ def query_articles(
 
         columns = [
             "id", "title", "source_name", "source_url", "published_at",
-            "category_l1", "category_l2", "keywords", "crawl_time", "created_at",
+            "category_l1", "category_l2", "keywords", "crawl_time", "created_at", "crawl_count",
         ]
         rows = []
         for record in cur.fetchall():
@@ -264,6 +278,30 @@ def get_all_keywords() -> List[str]:
     except Exception as e:
         conn.rollback()
         logger.error(f"获取关键词列表失败: {e}")
+        return []
+    finally:
+        _put_conn(conn)
+
+
+def get_all_source_names() -> List[str]:
+    """获取所有出现过的来源名称（用于筛选下拉框）。"""
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT DISTINCT source_name
+            FROM news_articles
+            WHERE source_name IS NOT NULL AND source_name != ''
+            ORDER BY source_name
+            """
+        )
+        names = [row[0] for row in cur.fetchall()]
+        cur.close()
+        return names
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"获取来源列表失败: {e}")
         return []
     finally:
         _put_conn(conn)

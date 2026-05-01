@@ -16,14 +16,13 @@ CREATE TABLE IF NOT EXISTS news_articles (
     category_l1 TEXT NOT NULL DEFAULT '',
     category_l2 TEXT NOT NULL DEFAULT '',
     keywords TEXT[] NOT NULL DEFAULT '{}',
+    crawl_count INTEGER NOT NULL DEFAULT 1,
     crawl_time TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
 -- 标题唯一约束
--- 长标题可能超过 PostgreSQL btree 单索引项大小限制，使用 MD5 表达式索引去重。
-DROP INDEX IF EXISTS idx_news_articles_title;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_news_articles_title_md5 ON news_articles (md5(title));
+CREATE UNIQUE INDEX IF NOT EXISTS idx_news_articles_title ON news_articles (title);
 
 -- 中文全文检索索引（zhparser 分词）
 CREATE INDEX IF NOT EXISTS idx_news_articles_title_fts ON news_articles
@@ -44,3 +43,17 @@ CREATE INDEX IF NOT EXISTS idx_news_articles_category_l1 ON news_articles (categ
 -- 复合索引：关键词 + 发布日期
 CREATE INDEX IF NOT EXISTS idx_news_articles_keywords_date ON news_articles
     USING GIN (keywords) WHERE published_at IS NOT NULL;
+
+-- 迁移：为已有表添加 crawl_count 列
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_name = 'news_articles'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'news_articles' AND column_name = 'crawl_count'
+    ) THEN
+        ALTER TABLE news_articles ADD COLUMN crawl_count INTEGER NOT NULL DEFAULT 1;
+    END IF;
+END $$;
