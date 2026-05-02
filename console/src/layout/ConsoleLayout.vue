@@ -2,7 +2,7 @@
 import { computed, ref, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { ArrowDown, House, List, Lock, Menu, Setting, User, UserFilled } from "@element-plus/icons-vue";
+import { ArrowDown, House, List, Lock, Menu, Moon, Setting, Sunny, User, UserFilled } from "@element-plus/icons-vue";
 import { useSessionStore } from "../stores/session";
 
 const props = defineProps({
@@ -42,12 +42,31 @@ let settingsHoverTimer = null;
 const username = computed(() => session.state.user?.username || "");
 const pageTitle = computed(() => route.meta?.title || "控制台");
 const fullName = computed(() => session.state.user?.full_name || session.state.user?.username || "");
+const THEME_STORAGE_KEY = "trendradar:console-theme";
+const theme = ref("dark");
 const passwordDialogVisible = ref(false);
 const passwordForm = ref({
   old_password: "",
   new_password: "",
   confirm_password: "",
 });
+
+function applyTheme(value) {
+  const nextTheme = value === "light" ? "light" : "dark";
+  theme.value = nextTheme;
+  if (typeof document !== "undefined") {
+    document.documentElement.dataset.theme = nextTheme;
+  }
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+  }
+}
+
+function initializeTheme() {
+  if (typeof window === "undefined") return;
+  const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+  applyTheme(savedTheme === "light" ? "light" : "dark");
+}
 
 function syncViewport() {
   isMobile.value = window.innerWidth < 992;
@@ -140,6 +159,7 @@ async function handleLogout() {
 }
 
 onMounted(() => {
+  initializeTheme();
   syncViewport();
   window.addEventListener("resize", syncViewport);
 });
@@ -153,7 +173,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="console-shell">
+  <div class="console-shell" :class="`theme--${theme}`">
     <transition name="console-fade">
       <button
         v-if="isMobile && mobileMenuOpen"
@@ -259,6 +279,26 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <div class="console-header__right">
+          <div class="console-theme-toggle" aria-label="界面主题切换">
+            <button
+              class="console-theme-btn"
+              :class="{ 'is-active': theme === 'light' }"
+              type="button"
+              title="浅色主题"
+              @click="applyTheme('light')"
+            >
+              <el-icon><Sunny /></el-icon>
+            </button>
+            <button
+              class="console-theme-btn"
+              :class="{ 'is-active': theme === 'dark' }"
+              type="button"
+              title="深色主题"
+              @click="applyTheme('dark')"
+            >
+              <el-icon><Moon /></el-icon>
+            </button>
+          </div>
           <div class="console-status">
             <span class="console-status__dot"></span>
             <span>实时监测中</span>
