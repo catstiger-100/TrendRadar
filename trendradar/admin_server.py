@@ -29,6 +29,9 @@ from trendradar.core.frequency import (
     parse_frequency_words_for_display,
 )
 from trendradar.storage import auth_repository
+from trendradar.storage import news_favorite_repository
+from trendradar.storage import news_share_repository
+from trendradar.storage.news_repository import ensure_news_article_columns
 
 
 OUTPUT_DIR = Path(os.environ.get("WEBSERVER_DIR", "/app/output"))
@@ -167,6 +170,15 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/news":
             self._send_news()
             return
+        if path == "/api/news/favorites":
+            self._send_news_favorites()
+            return
+        if path == "/api/news/shares":
+            self._send_news_shares()
+            return
+        if path.startswith("/api/public/shares/"):
+            self._send_public_share(path)
+            return
         if path == "/api/news/keywords-list":
             self._send_news_keywords_list()
             return
@@ -209,6 +221,12 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/auth/change-password":
             self._change_password()
             return
+        if path == "/api/news/favorites":
+            self._create_news_favorite()
+            return
+        if path == "/api/news/shares":
+            self._create_or_update_news_share()
+            return
         if path == "/api/roles":
             self._create_role()
             return
@@ -229,6 +247,9 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
 
     def do_DELETE(self):
         path = urlparse(self.path).path
+        if path.startswith("/api/news/favorites/"):
+            self._delete_news_favorite(path)
+            return
         if path.startswith("/api/roles/"):
             self._delete_role(path)
             return
@@ -305,6 +326,13 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         if forwarded:
             return forwarded.split(",")[0].strip()
         return self.client_address[0] if self.client_address else ""
+
+    def _build_public_base_url(self):
+        forwarded_proto = self.headers.get("X-Forwarded-Proto", "").strip()
+        forwarded_host = self.headers.get("X-Forwarded-Host", "").strip()
+        host = forwarded_host or self.headers.get("Host", "").strip()
+        proto = forwarded_proto or ("https" if self.server.server_port == 443 else "http")
+        return f"{proto}://{host}".rstrip("/")
 
     def _get_session_token(self):
         cookie_header = self.headers.get("Cookie", "")
@@ -570,6 +598,9 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
 
     def _send_news(self):
         """分页查询资讯（支持关键词、日期和来源筛选）。"""
+        user = self._require_auth()
+        if not user:
+            return
         try:
             from trendradar.storage.news_repository import query_articles
 
@@ -577,16 +608,36 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
             keyword = query.get("keyword", [None])[0]
             query_date = query.get("date", [None])[0]
             source = query.get("source", [None])[0]
+            favorite_only = query.get("favorite_only", ["0"])[0] in ("1", "true", "True")
             page = int(query.get("page", ["1"])[0])
             page_size = int(query.get("page_size", ["200"])[0])
+            favorite_article_ids = None
+            if favorite_only:
+                favorite_article_ids = list(
+                    news_favorite_repository.get_favorite_article_ids(user["id"])
+                )
 
             rows, total = query_articles(
                 keyword=keyword,
                 query_date=query_date,
                 source_name=source,
+                favorite_only=favorite_only,
+                favorite_article_ids=favorite_article_ids,
                 page=page,
                 page_size=page_size,
             )
+            favorite_map = news_favorite_repository.get_favorite_map(
+                user["id"],
+                [row["id"] for row in rows],
+            )
+            share_map = self._get_share_map(user["id"], [row["id"] for row in rows])
+            for row in rows:
+                favorite = favorite_map.get(row["id"])
+                row["is_favorite"] = bool(favorite)
+                row["favorite"] = favorite or None
+                share = share_map.get(row["id"])
+                row["is_shared"] = bool(share)
+                row["share"] = share or None
             self._send_json(200, {
                 "items": rows,
                 "total": total,
@@ -594,6 +645,119 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
                 "page_size": page_size,
                 "total_pages": max(1, (total + page_size - 1) // page_size),
             })
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _get_share_map(self, user_id, article_ids):
+        article_ids = [int(article_id) for article_id in article_ids if article_id is not None]
+        if not article_ids:
+            return {}
+        share_map = {}
+        for article_id in article_ids:
+            share = news_share_repository.get_share_by_article_and_user(article_id, user_id)
+            if share:
+                share_map[article_id] = share
+        return share_map
+
+    def _send_news_favorites(self):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            query = parse_qs(urlparse(self.path).query)
+            article_ids = [
+                int(value)
+                for value in query.get("article_id", [])
+                if str(value).isdigit()
+            ]
+            favorites = news_favorite_repository.get_favorite_map(user["id"], article_ids)
+            self._send_json(200, {"favorites": favorites})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _send_news_shares(self):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            query = parse_qs(urlparse(self.path).query)
+            article_id = int(query.get("article_id", ["0"])[0])
+            share = news_share_repository.get_share_by_article_and_user(article_id, user["id"])
+            self._send_json(200, {"share": share})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _create_news_favorite(self):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            payload = self._read_json_body()
+            article_id = int(payload.get("article_id", 0))
+            title = str(payload.get("title", "") or "").strip()
+            thought = str(payload.get("thought", "") or "").strip()
+            if article_id <= 0:
+                raise ValueError("文章 ID 无效")
+            favorite = news_favorite_repository.add_favorite(
+                article_id=article_id,
+                user_id=user["id"],
+                thought=thought,
+                title=title,
+            )
+            self._send_json(201, {"favorite": favorite})
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _create_or_update_news_share(self):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            payload = self._read_json_body()
+            article_id = int(payload.get("article_id", 0))
+            title = str(payload.get("title", "") or "").strip()
+            thought = str(payload.get("thought", "") or "").strip()
+            if article_id <= 0:
+                raise ValueError("文章 ID 无效")
+            share = news_share_repository.upsert_share(
+                article_id=article_id,
+                user_id=user["id"],
+                title=title,
+                thought=thought,
+                share_base_url=self._build_public_base_url(),
+            )
+            self._send_json(201, {"share": share})
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _delete_news_favorite(self, path):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            article_id = self._parse_id_from_path(path, "/api/news/favorites/")
+            deleted = news_favorite_repository.remove_favorite(article_id, user["id"])
+            self._send_json(200, {"deleted": deleted})
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _send_public_share(self, path):
+        try:
+            share_token = path.removeprefix("/api/public/shares/").strip("/")
+            if not share_token:
+                self.send_error(404, "Not Found")
+                return
+            share = news_share_repository.get_share_detail_by_token(share_token)
+            if not share:
+                self.send_error(404, "Not Found")
+                return
+            self._send_json(200, {"share": share})
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 
@@ -818,6 +982,9 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
 def run(host="0.0.0.0", port=8080):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     auth_repository.ensure_schema()
+    ensure_news_article_columns()
+    news_favorite_repository.ensure_schema()
+    news_share_repository.ensure_schema()
     server = ThreadingHTTPServer((host, port), AdminRequestHandler)
     print(f"TrendRadar 管理服务已启动: http://{host}:{port}")
     print(f"报告目录: {OUTPUT_DIR}")

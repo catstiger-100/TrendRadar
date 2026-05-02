@@ -1,9 +1,16 @@
 <script setup>
-import { ref, reactive, onMounted } from "vue";
+import { ref, onMounted } from "vue";
 import { ElMessage } from "element-plus";
-import { Search, RefreshRight } from "@element-plus/icons-vue";
+import { Search, RefreshRight, Share } from "@element-plus/icons-vue";
+import QRCode from "qrcode";
 import ConsoleLayout from "../layout/ConsoleLayout.vue";
-import { fetchNews, fetchSources } from "../api/news";
+import {
+  fetchNews,
+  fetchSources,
+  createFavorite,
+  deleteFavorite,
+  createOrUpdateShare,
+} from "../api/news";
 
 const items = ref([]);
 const total = ref(0);
@@ -13,9 +20,36 @@ const sources = ref([]);
 const keyword = ref("");
 const selectedDate = ref("");
 const selectedSource = ref("");
+const favoriteOnly = ref(false);
 
 const highlightKeyword = ref("");
 const now = ref(Date.now());
+
+const TABLE_FONT_STORAGE_KEY = "trendradar:opinion-table-font-size";
+const LAYOUT_MODE_STORAGE_KEY = "trendradar:opinion-layout-mode";
+const TABLE_FONT_MIN = 12;
+const TABLE_FONT_MAX = 24;
+const TABLE_FONT_DEFAULT = 13;
+const tableFontSize = ref(TABLE_FONT_DEFAULT);
+const layoutMode = ref("table");
+const favoriteDialogVisible = ref(false);
+const favoriteSubmitting = ref(false);
+const favoriteRemoving = ref(false);
+const favoriteForm = ref({
+  article_id: null,
+  title: "",
+  thought: "",
+  is_favorite: false,
+});
+const shareDialogVisible = ref(false);
+const shareSubmitting = ref(false);
+const shareQrCode = ref("");
+const shareForm = ref({
+  article_id: null,
+  title: "",
+  thought: "",
+  share_url: "",
+});
 
 function escapeHtml(text) {
   const map = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
@@ -42,6 +76,55 @@ function heatLevel(count) {
   return "low";
 }
 
+function clampTableFontSize(size) {
+  return Math.min(TABLE_FONT_MAX, Math.max(TABLE_FONT_MIN, size));
+}
+
+function loadTableFontSize() {
+  if (typeof window === "undefined") return;
+  const raw = window.localStorage.getItem(TABLE_FONT_STORAGE_KEY);
+  const parsed = Number.parseInt(raw || "", 10);
+  if (Number.isFinite(parsed)) {
+    tableFontSize.value = clampTableFontSize(parsed);
+  }
+}
+
+function saveTableFontSize() {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(TABLE_FONT_STORAGE_KEY, String(tableFontSize.value));
+}
+
+function loadLayoutMode() {
+  if (typeof window === "undefined") return;
+  const saved = window.localStorage.getItem(LAYOUT_MODE_STORAGE_KEY);
+  if (saved === "table" || saved === "card") {
+    layoutMode.value = saved;
+  }
+}
+
+function setLayoutMode(mode) {
+  if (mode !== "table" && mode !== "card") return;
+  layoutMode.value = mode;
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(LAYOUT_MODE_STORAGE_KEY, mode);
+}
+
+function increaseTableFontSize() {
+  const nextSize = clampTableFontSize(tableFontSize.value + 1);
+  if (nextSize !== tableFontSize.value) {
+    tableFontSize.value = nextSize;
+    saveTableFontSize();
+  }
+}
+
+function decreaseTableFontSize() {
+  const nextSize = clampTableFontSize(tableFontSize.value - 1);
+  if (nextSize !== tableFontSize.value) {
+    tableFontSize.value = nextSize;
+    saveTableFontSize();
+  }
+}
+
 async function loadSources() {
   try {
     const data = await fetchSources();
@@ -63,6 +146,7 @@ async function loadNews() {
     }
     if (selectedDate.value) params.date = selectedDate.value;
     if (selectedSource.value) params.source = selectedSource.value;
+    if (favoriteOnly.value) params.favorite_only = true;
 
     const data = await fetchNews(params);
     items.value = data.items || [];
@@ -83,18 +167,131 @@ function onClear() {
   keyword.value = "";
   selectedDate.value = "";
   selectedSource.value = "";
+  favoriteOnly.value = false;
   highlightKeyword.value = "";
   loadNews();
 }
 
+function openFavoriteDialog(row) {
+  favoriteForm.value = {
+    article_id: row.id,
+    title: row.title || "",
+    thought: row.favorite?.thought || "",
+    is_favorite: Boolean(row.is_favorite),
+  };
+  favoriteDialogVisible.value = true;
+}
+
+async function openShareDialog(row) {
+  shareForm.value = {
+    article_id: row.id,
+    title: row.title || "",
+    thought: row.share?.thought || "",
+    share_url: row.share?.share_url || "",
+  };
+  shareQrCode.value = "";
+  if (shareForm.value.share_url) {
+    shareQrCode.value = await QRCode.toDataURL(shareForm.value.share_url, {
+      width: 220,
+      margin: 1,
+    });
+  }
+  shareDialogVisible.value = true;
+}
+
+async function submitFavorite() {
+  if (!favoriteForm.value.article_id) return;
+  favoriteSubmitting.value = true;
+  try {
+    const data = await createFavorite({
+      article_id: favoriteForm.value.article_id,
+      title: favoriteForm.value.title,
+      thought: favoriteForm.value.thought,
+    });
+    const current = items.value.find((item) => item.id === favoriteForm.value.article_id);
+    if (current) {
+      current.is_favorite = true;
+      current.favorite = data.favorite || null;
+    }
+    favoriteForm.value.is_favorite = true;
+    favoriteDialogVisible.value = false;
+    ElMessage.success("收藏已保存");
+  } catch (e) {
+    ElMessage.error(e.message || "收藏失败");
+  } finally {
+    favoriteSubmitting.value = false;
+  }
+}
+
+async function removeFavorite(articleId) {
+  await deleteFavorite(articleId);
+  if (favoriteOnly.value) {
+    items.value = items.value.filter((item) => item.id !== articleId);
+    total.value = Math.max(0, total.value - 1);
+    return;
+  }
+  const current = items.value.find((item) => item.id === articleId);
+  if (current) {
+    current.is_favorite = false;
+    current.favorite = null;
+  }
+}
+
+async function removeFavoriteFromDialog() {
+  if (!favoriteForm.value.article_id) return;
+  favoriteRemoving.value = true;
+  try {
+    await removeFavorite(favoriteForm.value.article_id);
+    favoriteDialogVisible.value = false;
+    favoriteForm.value.is_favorite = false;
+    ElMessage.success("已取消收藏");
+  } catch (e) {
+    ElMessage.error(e.message || "取消收藏失败");
+  } finally {
+    favoriteRemoving.value = false;
+  }
+}
+
+function toggleFavorite(row) {
+  openFavoriteDialog(row);
+}
+
+async function submitShare() {
+  if (!shareForm.value.article_id) return;
+  shareSubmitting.value = true;
+  try {
+    const data = await createOrUpdateShare({
+      article_id: shareForm.value.article_id,
+      title: shareForm.value.title,
+      thought: shareForm.value.thought,
+    });
+    shareForm.value.share_url = data.share?.share_url || "";
+    shareQrCode.value = shareForm.value.share_url
+      ? await QRCode.toDataURL(shareForm.value.share_url, { width: 220, margin: 1 })
+      : "";
+    const current = items.value.find((item) => item.id === shareForm.value.article_id);
+    if (current) {
+      current.is_shared = true;
+      current.share = data.share || null;
+    }
+    ElMessage.success("分享已生成");
+  } catch (e) {
+    ElMessage.error(e.message || "分享失败");
+  } finally {
+    shareSubmitting.value = false;
+  }
+}
+
 onMounted(() => {
+  loadTableFontSize();
+  loadLayoutMode();
   loadSources();
   loadNews();
 });
 </script>
 
 <template>
-  <ConsoleLayout>
+  <ConsoleLayout :show-header="false">
     <section class="opinion-page">
       <!-- 工具栏 -->
       <div class="opinion-toolbar">
@@ -132,11 +329,55 @@ onMounted(() => {
               :value="src"
             />
           </el-select>
+          <el-switch
+            v-model="favoriteOnly"
+            class="opinion-favorite-filter"
+            inline-prompt
+            active-text="我的收藏"
+            inactive-text="全部文章"
+            @change="onSearch"
+          />
         </div>
         <div class="opinion-toolbar__right">
           <span class="opinion-meta" :key="now">
             <span class="opinion-meta__count">{{ total }}</span> 条资讯
           </span>
+          <div class="opinion-view-tools">
+            <div class="opinion-layout-toggle">
+              <button
+                type="button"
+                class="opinion-layout-btn"
+                :class="{ 'is-active': layoutMode === 'table' }"
+                @click="setLayoutMode('table')"
+              >
+                列表
+              </button>
+              <button
+                type="button"
+                class="opinion-layout-btn"
+                :class="{ 'is-active': layoutMode === 'card' }"
+                @click="setLayoutMode('card')"
+              >
+                卡片
+              </button>
+            </div>
+            <div class="opinion-font-tools">
+              <el-button
+                class="opinion-font-btn"
+                @click="decreaseTableFontSize"
+                title="缩小字号"
+              >
+                A-
+              </el-button>
+              <el-button
+                class="opinion-font-btn"
+                @click="increaseTableFontSize"
+                title="放大字号"
+              >
+                A+
+              </el-button>
+            </div>
+          </div>
           <el-button
             :icon="RefreshRight"
             circle
@@ -147,12 +388,15 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- 表格 -->
-      <div class="opinion-panel console-panel">
+      <div
+        v-if="layoutMode === 'table'"
+        class="opinion-panel console-panel"
+      >
         <el-table
           :data="items"
           v-loading="loading"
           class="opinion-table console-table"
+          :style="{ '--opinion-table-font-size': `${tableFontSize}px` }"
           row-class-name="opinion-row"
           stripe
           height="100%"
@@ -164,10 +408,40 @@ onMounted(() => {
           </el-table-column>
           <el-table-column prop="title" label="新闻标题" min-width="280">
             <template #default="{ row }">
-              <span
-                class="opinion-title"
-                v-html="highlight(row.title, highlightKeyword)"
-              ></span>
+              <div class="opinion-title-wrap">
+                <div class="opinion-action-group">
+                  <button
+                    type="button"
+                    class="opinion-favorite-btn"
+                    :class="{ 'is-active': row.is_favorite }"
+                    :title="row.is_favorite ? '取消收藏' : '收藏文章'"
+                    @click="toggleFavorite(row)"
+                  >
+                    {{ row.is_favorite ? "★" : "☆" }}
+                  </button>
+                  <button
+                    type="button"
+                    class="opinion-share-btn"
+                    :class="{ 'is-active': row.is_shared }"
+                    :title="row.is_shared ? '编辑分享' : '分享文章'"
+                    @click="openShareDialog(row)"
+                  >
+                    <el-icon><Share /></el-icon>
+                  </button>
+                </div>
+                <div class="opinion-title-main">
+                  <span
+                    class="opinion-title"
+                    v-html="highlight(row.title, highlightKeyword)"
+                  ></span>
+                  <p
+                    v-if="row.favorite?.thought"
+                    class="opinion-thought"
+                  >
+                    我的思路：{{ row.favorite.thought }}
+                  </p>
+                </div>
+              </div>
             </template>
           </el-table-column>
           <el-table-column prop="source_name" label="来源" width="120" align="center">
@@ -202,6 +476,172 @@ onMounted(() => {
           </el-table-column>
         </el-table>
       </div>
+
+      <div
+        v-else
+        class="opinion-card-board console-panel"
+        :style="{ '--opinion-table-font-size': `${tableFontSize}px` }"
+      >
+        <div v-loading="loading" class="opinion-card-wrap">
+          <article
+            v-for="(row, index) in items"
+            :key="row.id"
+            class="opinion-card-item"
+          >
+            <div class="opinion-card-index">
+              <strong>{{ index + 1 }}</strong>
+              <span>No.</span>
+            </div>
+
+            <div class="opinion-card-main">
+              <div class="opinion-card-meta">
+                <span class="opinion-card-pill source">{{ row.source_name || "-" }}</span>
+                <span class="opinion-card-pill time">{{ formatTime(row.published_at) }}</span>
+                <span class="opinion-card-pill freq">{{ row.crawl_count || 1 }}次</span>
+                <button
+                  type="button"
+                  class="opinion-card-pill opinion-card-pill--favorite"
+                  :class="{ 'is-active': row.is_favorite }"
+                  :title="row.is_favorite ? '取消收藏' : '收藏文章'"
+                  @click="toggleFavorite(row)"
+                >
+                  <span>{{ row.is_favorite ? "★" : "☆" }}</span>
+                  <span>{{ row.is_favorite ? "已收藏" : "收藏" }}</span>
+                </button>
+                <button
+                  type="button"
+                  class="opinion-card-pill opinion-card-pill--share"
+                  :class="{ 'is-active': row.is_shared }"
+                  :title="row.is_shared ? '编辑分享' : '分享文章'"
+                  @click="openShareDialog(row)"
+                >
+                  <el-icon><Share /></el-icon>
+                  <span>{{ row.is_shared ? "已分享" : "分享" }}</span>
+                </button>
+                <span
+                  v-for="kw in (row.keywords || [])"
+                  :key="kw"
+                  class="opinion-card-keyword"
+                >
+                  {{ kw }}
+                </span>
+              </div>
+
+              <div class="opinion-card-title-row">
+                <a
+                  :href="row.source_url || '#'"
+                  target="_blank"
+                  rel="noreferrer"
+                  class="opinion-card-link"
+                >
+                  {{ row.title }}
+                </a>
+              </div>
+
+              <p v-if="row.summary" class="opinion-card-summary">
+                {{ row.summary }}
+              </p>
+              <p v-if="row.favorite?.thought" class="opinion-card-thought">
+                我的思路：{{ row.favorite.thought }}
+              </p>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <el-dialog
+        v-model="favoriteDialogVisible"
+        title="收藏文章"
+        width="560px"
+        class="opinion-favorite-dialog"
+      >
+        <div class="opinion-favorite-dialog__body">
+          <div class="opinion-favorite-dialog__title">
+            {{ favoriteForm.title || "-" }}
+          </div>
+          <el-input
+            v-model="favoriteForm.thought"
+            type="textarea"
+            :rows="6"
+            maxlength="2000"
+            show-word-limit
+            placeholder="记录你的研判思路、后续跟踪方向或关注点..."
+          />
+        </div>
+        <template #footer>
+          <div class="opinion-favorite-dialog__footer">
+            <el-button @click="favoriteDialogVisible = false">取消</el-button>
+            <el-button
+              v-if="favoriteForm.is_favorite"
+              type="danger"
+              plain
+              :loading="favoriteRemoving"
+              @click="removeFavoriteFromDialog"
+            >
+              取消收藏
+            </el-button>
+            <el-button
+              type="primary"
+              :loading="favoriteSubmitting"
+              @click="submitFavorite"
+            >
+              {{ favoriteForm.is_favorite ? "保存思路" : "确认收藏" }}
+            </el-button>
+          </div>
+        </template>
+      </el-dialog>
+
+      <el-dialog
+        v-model="shareDialogVisible"
+        title="分享文章"
+        width="640px"
+        class="opinion-share-dialog"
+      >
+        <div class="opinion-share-dialog__body">
+          <div class="opinion-share-dialog__title">
+            {{ shareForm.title || "-" }}
+          </div>
+          <el-input
+            v-model="shareForm.thought"
+            type="textarea"
+            :rows="6"
+            maxlength="2000"
+            show-word-limit
+            placeholder="写下你的分享思路、判断逻辑或推荐阅读角度..."
+          />
+          <div v-if="shareForm.share_url" class="opinion-share-result">
+            <img
+              v-if="shareQrCode"
+              :src="shareQrCode"
+              alt="分享二维码"
+              class="opinion-share-qrcode"
+            />
+            <div class="opinion-share-result__meta">
+              <div class="opinion-share-result__label">访问地址</div>
+              <a
+                :href="shareForm.share_url"
+                target="_blank"
+                rel="noreferrer"
+                class="opinion-share-link"
+              >
+                {{ shareForm.share_url }}
+              </a>
+            </div>
+          </div>
+        </div>
+        <template #footer>
+          <div class="opinion-share-dialog__footer">
+            <el-button @click="shareDialogVisible = false">关闭</el-button>
+            <el-button
+              type="primary"
+              :loading="shareSubmitting"
+              @click="submitShare"
+            >
+              {{ shareForm.share_url ? "更新分享" : "生成分享" }}
+            </el-button>
+          </div>
+        </template>
+      </el-dialog>
     </section>
   </ConsoleLayout>
 </template>
@@ -247,6 +687,12 @@ onMounted(() => {
   flex-shrink: 0;
 }
 
+.opinion-view-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .opinion-search {
   width: 220px;
 }
@@ -257,6 +703,71 @@ onMounted(() => {
 
 .opinion-source {
   width: 164px;
+}
+
+.opinion-favorite-filter {
+  --el-switch-on-color: rgba(255, 209, 102, 0.96);
+  --el-switch-off-color: rgba(0, 212, 255, 0.22);
+  white-space: nowrap;
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.opinion-favorite-filter :deep(.el-switch) {
+  --el-switch-height: 30px;
+  --el-switch-button-size: 26px;
+}
+
+.opinion-favorite-filter :deep(.el-switch__label) {
+  color: rgba(184, 216, 248, 0.78);
+  font-size: 12px;
+  transition: color 0.2s ease;
+}
+
+.opinion-favorite-filter :deep(.el-switch__label.is-active) {
+  color: #e7faff;
+}
+
+.opinion-favorite-filter :deep(.el-switch__core) {
+  min-width: 100px;
+  height: 30px;
+  border-radius: 15px;
+  border: 1px solid rgba(0, 212, 255, 0.32);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 212, 255, 0.05),
+    0 0 0 1px rgba(0, 212, 255, 0.08);
+}
+
+.opinion-favorite-filter :deep(.el-switch__core .el-switch__action) {
+  left: 8px;
+  background: #bfefff;
+  border: 1px solid rgba(0, 212, 255, 0.32);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.18);
+}
+
+.opinion-favorite-filter :deep(.el-switch.is-checked .el-switch__core) {
+  border-color: rgba(255, 209, 102, 0.78);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 209, 102, 0.12),
+    0 0 14px rgba(255, 209, 102, 0.22);
+}
+
+.opinion-favorite-filter :deep(.el-switch.is-checked .el-switch__core .el-switch__action) {
+  left: calc(100% - 26px - 8px);
+  background: #fff0b8;
+  border-color: rgba(255, 209, 102, 0.68);
+}
+
+.opinion-favorite-filter :deep(.el-switch__core .el-switch__inner) {
+  width: 100%;
+  padding: 0 8px 0 20px;
+  box-sizing: border-box;
+}
+
+.opinion-favorite-filter :deep(.el-switch.is-checked .el-switch__core .el-switch__inner) {
+  padding: 0 20px 0 8px;
 }
 
 .opinion-meta {
@@ -278,12 +789,237 @@ onMounted(() => {
   --el-button-text-color: var(--console-text-soft);
 }
 
+.opinion-font-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.opinion-layout-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(0, 212, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(0, 212, 255, 0.04);
+}
+
+.opinion-layout-btn {
+  border: 0;
+  background: transparent;
+  color: rgba(184, 216, 248, 0.76);
+  min-width: 54px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.opinion-layout-btn:hover {
+  color: #e7faff;
+}
+
+.opinion-layout-btn.is-active {
+  color: #03111d;
+  background: linear-gradient(135deg, #54e4ff, #8ff4ff);
+  box-shadow: 0 0 16px rgba(0, 212, 255, 0.22);
+}
+
+.opinion-font-btn {
+  --el-button-bg-color: rgba(0, 212, 255, 0.08);
+  --el-button-border-color: rgba(0, 212, 255, 0.18);
+  --el-button-text-color: var(--console-text-soft);
+  --el-button-hover-bg-color: rgba(0, 212, 255, 0.18);
+  --el-button-hover-border-color: rgba(0, 212, 255, 0.34);
+  --el-button-hover-text-color: #e7faff;
+  --el-button-active-bg-color: rgba(0, 212, 255, 0.22);
+  --el-button-active-border-color: rgba(0, 212, 255, 0.42);
+  min-width: 44px;
+  padding: 8px 12px;
+  font-family: var(--console-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
 /* ── 面板 & 表格 ── */
 .opinion-panel {
   flex: 1;
   min-height: 0;
   padding: 0;
   overflow: hidden;
+}
+
+.opinion-card-board {
+  flex: 1;
+  min-height: 0;
+  padding: 16px;
+  overflow: auto;
+}
+
+.opinion-card-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.opinion-card-item {
+  padding: 16px 18px;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  background: rgba(8, 14, 34, 0.88);
+  border: 1px solid rgba(0, 212, 255, 0.08);
+  border-radius: 12px;
+  transition: background 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
+}
+
+.opinion-card-item:hover {
+  background: rgba(0, 212, 255, 0.05);
+  border-color: rgba(0, 212, 255, 0.22);
+  transform: translateY(-1px);
+}
+
+.opinion-card-index {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--console-mono);
+  color: var(--console-cyan);
+}
+
+.opinion-card-index strong {
+  font-size: 28px;
+  line-height: 1;
+  font-weight: 800;
+  text-shadow: 0 0 14px rgba(0, 212, 255, 0.12);
+}
+
+.opinion-card-index span {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--console-muted);
+}
+
+.opinion-card-main {
+  min-width: 0;
+}
+
+.opinion-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  font-size: 11px;
+  color: var(--console-muted);
+}
+
+.opinion-card-pill,
+.opinion-card-keyword {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.opinion-card-pill.source {
+  color: var(--console-text-soft);
+  background: rgba(0, 212, 255, 0.08);
+  border-color: rgba(0, 212, 255, 0.14);
+}
+
+.opinion-card-pill.time {
+  color: var(--console-muted);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.opinion-card-pill.freq {
+  color: #95ffe3;
+  background: rgba(34, 211, 238, 0.08);
+  border-color: rgba(34, 211, 238, 0.12);
+}
+
+.opinion-card-pill--favorite {
+  border: 1px solid rgba(0, 212, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(184, 216, 248, 0.82);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.opinion-card-pill--favorite:hover {
+  color: #e7faff;
+  background: rgba(0, 212, 255, 0.1);
+  border-color: rgba(0, 212, 255, 0.22);
+}
+
+.opinion-card-pill--favorite.is-active {
+  color: #2b1a00;
+  background: linear-gradient(90deg, #f0a500, #ffd166);
+  border-color: rgba(240, 165, 0, 0.35);
+  box-shadow: 0 0 18px rgba(240, 165, 0, 0.16);
+}
+
+.opinion-card-pill--share {
+  border: 1px solid rgba(0, 212, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(184, 216, 248, 0.82);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.opinion-card-pill--share:hover {
+  color: #e7faff;
+  background: rgba(0, 212, 255, 0.1);
+  border-color: rgba(0, 212, 255, 0.22);
+}
+
+.opinion-card-pill--share.is-active {
+  color: #03111d;
+  background: linear-gradient(135deg, #54e4ff, #8ff4ff);
+  border-color: rgba(84, 228, 255, 0.34);
+  box-shadow: 0 0 18px rgba(0, 212, 255, 0.16);
+}
+
+.opinion-card-keyword {
+  color: #9ff6ff;
+  background: rgba(0, 212, 255, 0.08);
+  border-color: rgba(0, 212, 255, 0.15);
+}
+
+.opinion-card-link {
+  color: #d5ebf8;
+  font-size: calc(var(--opinion-table-font-size) + 2px);
+  font-weight: 600;
+  line-height: 1.55;
+  text-decoration: none;
+  transition: color 0.25s ease;
+  display: block;
+}
+
+.opinion-card-link:hover {
+  color: var(--console-cyan);
+}
+
+.opinion-card-summary,
+.opinion-card-thought {
+  margin: 10px 0 0;
+  color: rgba(184, 216, 248, 0.76);
+  font-size: var(--opinion-table-font-size);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.opinion-card-thought {
+  color: rgba(255, 209, 102, 0.88);
 }
 
 .opinion-table {
@@ -293,7 +1029,8 @@ onMounted(() => {
   --el-table-text-color: var(--console-text-soft);
   --el-table-header-text-color: #b8d8f8;
   --el-table-current-row-bg-color: rgba(0, 212, 255, 0.06);
-  font-size: 13px;
+  --opinion-table-font-size: 13px;
+  font-size: var(--opinion-table-font-size);
 }
 
 /* 表头固定 - sticky */
@@ -310,7 +1047,7 @@ onMounted(() => {
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  font-size: 12px;
+  font-size: calc(var(--opinion-table-font-size) - 1px);
 }
 
 /* 覆盖 Element Plus 默认条纹背景 */
@@ -326,7 +1063,7 @@ onMounted(() => {
 /* ── 单元格 ── */
 .opinion-time {
   font-family: var(--console-mono);
-  font-size: 12px;
+  font-size: calc(var(--opinion-table-font-size) - 1px);
   color: var(--console-muted);
 }
 
@@ -339,6 +1076,88 @@ onMounted(() => {
   color: #d5ebf8;
 }
 
+.opinion-title-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.opinion-action-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 1px;
+}
+
+.opinion-title-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.opinion-favorite-btn {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: rgba(184, 216, 248, 0.55);
+  font-size: calc(var(--opinion-table-font-size) + 3px);
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  transition: color 0.2s ease, transform 0.2s ease, text-shadow 0.2s ease;
+}
+
+.opinion-favorite-btn:hover {
+  color: #ffd166;
+  transform: scale(1.08);
+  text-shadow: 0 0 10px rgba(255, 209, 102, 0.24);
+}
+
+.opinion-favorite-btn.is-active {
+  color: #ffd166;
+  text-shadow: 0 0 12px rgba(255, 209, 102, 0.26);
+}
+
+.opinion-share-btn {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgba(0, 212, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(0, 212, 255, 0.06);
+  color: rgba(184, 216, 248, 0.68);
+  font-size: calc(var(--opinion-table-font-size) - 2px);
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.opinion-share-btn:hover {
+  color: #8ff4ff;
+  border-color: rgba(0, 212, 255, 0.3);
+  background: rgba(0, 212, 255, 0.14);
+  transform: translateY(-1px);
+}
+
+.opinion-share-btn.is-active {
+  color: #03111d;
+  border-color: rgba(84, 228, 255, 0.42);
+  background: linear-gradient(135deg, #54e4ff, #8ff4ff);
+  box-shadow: 0 0 14px rgba(0, 212, 255, 0.2);
+}
+
+.opinion-thought {
+  margin: 6px 0 0;
+  color: rgba(184, 216, 248, 0.72);
+  font-size: calc(var(--opinion-table-font-size) - 1px);
+  line-height: 1.45;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .opinion-title :deep(.opinion-highlight) {
   color: #ffd54f;
   background: rgba(255, 213, 79, 0.16);
@@ -348,13 +1167,13 @@ onMounted(() => {
 }
 
 .opinion-source-tag {
-  font-size: 12px;
+  font-size: calc(var(--opinion-table-font-size) - 1px);
   color: var(--console-muted);
 }
 
 .opinion-heat {
   font-family: var(--console-mono);
-  font-size: 12px;
+  font-size: calc(var(--opinion-table-font-size) - 1px);
   font-weight: 600;
   display: inline-flex;
   align-items: center;
@@ -394,13 +1213,110 @@ onMounted(() => {
   --el-tag-bg-color: rgba(0, 212, 255, 0.08);
   --el-tag-border-color: rgba(0, 212, 255, 0.14);
   --el-tag-text-color: var(--console-text-soft);
-  font-size: 11px;
+  font-size: calc(var(--opinion-table-font-size) - 2px);
 }
 
 /* ── Loading ── */
 .opinion-table :deep(.el-loading-mask) {
   background: rgba(5, 10, 26, 0.6);
   backdrop-filter: blur(2px);
+}
+
+.opinion-favorite-dialog :deep(.el-dialog) {
+  background: linear-gradient(180deg, rgba(8, 18, 42, 0.98), rgba(4, 10, 28, 0.98));
+  border: 1px solid rgba(0, 212, 255, 0.14);
+}
+
+.opinion-favorite-dialog :deep(.el-dialog__title) {
+  color: var(--console-text-soft);
+}
+
+.opinion-favorite-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.opinion-favorite-dialog__title {
+  color: #d5ebf8;
+  line-height: 1.6;
+}
+
+.opinion-favorite-dialog__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.opinion-share-dialog :deep(.el-dialog) {
+  background: linear-gradient(180deg, rgba(8, 18, 42, 0.98), rgba(4, 10, 28, 0.98));
+  border: 1px solid rgba(0, 212, 255, 0.14);
+}
+
+.opinion-share-dialog :deep(.el-dialog__title) {
+  color: var(--console-text-soft);
+}
+
+.opinion-share-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.opinion-share-dialog__title {
+  color: #d5ebf8;
+  line-height: 1.6;
+}
+
+.opinion-share-result {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  padding: 18px;
+  border-radius: 18px;
+  background: rgba(0, 212, 255, 0.04);
+  border: 1px solid rgba(0, 212, 255, 0.08);
+}
+
+.opinion-share-qrcode {
+  width: 220px;
+  height: 220px;
+  padding: 10px;
+  border-radius: 18px;
+  background: #ffffff;
+  object-fit: contain;
+}
+
+.opinion-share-result__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.opinion-share-result__label {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(143, 244, 255, 0.8);
+}
+
+.opinion-share-link {
+  color: #8ff4ff;
+  text-decoration: none;
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.opinion-share-link:hover {
+  color: #bff8ff;
+}
+
+.opinion-share-dialog__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 /* ── 响应式 ── */
@@ -431,6 +1347,29 @@ onMounted(() => {
   .opinion-toolbar__right {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .opinion-view-tools {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .opinion-card-item {
+    grid-template-columns: 1fr;
+  }
+
+  .opinion-card-index {
+    flex-direction: row;
+    justify-content: flex-start;
+  }
+
+  .opinion-share-result {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .opinion-share-result__meta {
+    width: 100%;
   }
 }
 </style>

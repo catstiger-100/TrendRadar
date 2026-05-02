@@ -1,5 +1,13 @@
 -- TrendRadar PostgreSQL 初始化脚本
--- 创建中文全文检索所需扩展和 news_articles 表
+-- 目标：
+-- 1. 新机器可直接执行本脚本恢复核心数据库结构
+-- 2. 兼容旧库升级：补齐新增字段、索引和收藏表
+-- 3. 所有 DDL 尽量幂等，允许重复执行
+--
+-- 说明：
+-- - 本脚本负责“结构初始化 + 结构迁移”。
+-- - 默认管理员用户的创建、密码哈希生成，仍由应用启动时的 auth_repository.ensure_schema() 完成，
+--   因为管理员账号/密码依赖运行环境变量，且密码哈希不适合硬编码在 SQL 中。
 
 CREATE EXTENSION IF NOT EXISTS zhparser;
 
@@ -27,6 +35,55 @@ BEGIN
         ALTER TEXT SEARCH CONFIGURATION chinese ADD MAPPING FOR n,v,a,i,e,l WITH simple;
     END IF;
 END $$;
+
+-- ============================================
+-- 认证与会话相关表
+-- 对应 trendradar/storage/auth_repository.py
+-- ============================================
+
+-- 角色表
+CREATE TABLE IF NOT EXISTS auth_roles (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 用户表
+CREATE TABLE IF NOT EXISTS auth_users (
+    id SERIAL PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    full_name TEXT NOT NULL DEFAULT '',
+    last_login_at TIMESTAMPTZ,
+    last_login_ip TEXT NOT NULL DEFAULT '',
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 用户角色关联表
+CREATE TABLE IF NOT EXISTS auth_user_roles (
+    user_id INTEGER NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
+    role_id INTEGER NOT NULL REFERENCES auth_roles(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, role_id)
+);
+
+-- 登录会话表
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    session_token TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
+    ip_address TEXT NOT NULL DEFAULT '',
+    user_agent TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions (user_id);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions (expires_at);
 
 -- 平台信息表
 CREATE TABLE IF NOT EXISTS platforms (
@@ -164,20 +221,67 @@ CREATE TABLE IF NOT EXISTS rss_push_records (
 CREATE TABLE IF NOT EXISTS news_articles (
     id SERIAL PRIMARY KEY,
     title TEXT NOT NULL,
+    title_md5 TEXT NOT NULL DEFAULT '',
     source_name TEXT NOT NULL DEFAULT '',
     source_url TEXT NOT NULL DEFAULT '',
+    source_id TEXT NOT NULL DEFAULT '',
     published_at TIMESTAMP WITH TIME ZONE,
     category_l1 TEXT NOT NULL DEFAULT '',
     category_l2 TEXT NOT NULL DEFAULT '',
     keywords TEXT[] NOT NULL DEFAULT '{}',
+    summary TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
     crawl_count INTEGER NOT NULL DEFAULT 1,
     crawl_time TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
--- 长标题会超过 PostgreSQL btree 单行索引限制，改用 md5(title) 去重
+-- ============================================
+-- 新闻收藏表
+-- 对应“舆情纵览 -> 新闻收藏”功能
+-- 说明：
+-- - article_id + user_id 唯一，保证同一用户对同一篇文章只有一条收藏记录
+-- - thought 保存“我的思路”长文本
+-- - title 为冗余字段，方便后续审计/导出
+-- ============================================
+CREATE TABLE IF NOT EXISTS news_article_favorites (
+    id SERIAL PRIMARY KEY,
+    article_id INTEGER NOT NULL REFERENCES news_articles(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
+    thought TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    favorite_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (article_id, user_id)
+);
+
+-- ============================================
+-- 新闻分享表
+-- 对应“舆情纵览 -> 新闻分享”功能
+-- 说明：
+-- - article_id + user_id 唯一，保证同一用户对同一篇文章只有一条分享记录
+-- - thought 保存“分享思路”长文本
+-- - title 为冗余字段，避免文章标题后续调整影响分享页展示
+-- - share_token 用于生成公开访问 URI
+-- - share_url 保存完整访问地址，便于前端直接复制和生成二维码
+-- ============================================
+CREATE TABLE IF NOT EXISTS news_article_shares (
+    id SERIAL PRIMARY KEY,
+    article_id INTEGER NOT NULL REFERENCES news_articles(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL DEFAULT '',
+    thought TEXT NOT NULL DEFAULT '',
+    share_token TEXT NOT NULL UNIQUE,
+    share_url TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (article_id, user_id)
+);
+
+-- 长标题会超过 PostgreSQL btree 单行索引限制，改用显式 md5 列去重
 DROP INDEX IF EXISTS idx_news_articles_title;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_news_articles_title_md5 ON news_articles (md5(title));
+DROP INDEX IF EXISTS idx_news_articles_title_md5_expr;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_news_articles_title_md5 ON news_articles (title_md5);
 
 -- 中文全文检索索引（zhparser 分词）
 CREATE INDEX IF NOT EXISTS idx_news_articles_title_fts ON news_articles
@@ -198,6 +302,23 @@ CREATE INDEX IF NOT EXISTS idx_news_articles_category_l1 ON news_articles (categ
 -- 复合索引：关键词 + 发布日期
 CREATE INDEX IF NOT EXISTS idx_news_articles_keywords_date ON news_articles
     USING GIN (keywords) WHERE published_at IS NOT NULL;
+
+-- 收藏查询索引
+CREATE INDEX IF NOT EXISTS idx_news_favorites_user_id
+    ON news_article_favorites (user_id, favorite_time DESC);
+
+CREATE INDEX IF NOT EXISTS idx_news_favorites_article_id
+    ON news_article_favorites (article_id);
+
+-- 分享查询索引
+CREATE INDEX IF NOT EXISTS idx_news_shares_article_id
+    ON news_article_shares (article_id);
+
+CREATE INDEX IF NOT EXISTS idx_news_shares_user_id
+    ON news_article_shares (user_id, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_news_shares_share_token
+    ON news_article_shares (share_token);
 
 -- 平台索引
 CREATE INDEX IF NOT EXISTS idx_news_platform ON news_items(platform_id);
@@ -241,7 +362,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_rss_url_feed
 -- RSS 抓取状态索引
 CREATE INDEX IF NOT EXISTS idx_rss_crawl_status_record ON rss_crawl_status(crawl_record_id);
 
--- 迁移：为已有表添加 crawl_count 列
+-- ============================================
+-- 兼容旧库迁移
+-- 说明：
+-- - 下列 DO/UPDATE 语句用于将旧环境升级到今天的最新结构
+-- - 在全新数据库中执行通常不会产生副作用
+-- ============================================
+
+-- 迁移：为 news_articles 补充 crawl_count 列
 DO $$
 BEGIN
     IF EXISTS (
@@ -254,3 +382,111 @@ BEGIN
         ALTER TABLE news_articles ADD COLUMN crawl_count INTEGER NOT NULL DEFAULT 1;
     END IF;
 END $$;
+
+-- 迁移：为 news_articles 补充 title_md5 列
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_name = 'news_articles'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'news_articles' AND column_name = 'title_md5'
+    ) THEN
+        ALTER TABLE news_articles ADD COLUMN title_md5 TEXT NOT NULL DEFAULT '';
+    END IF;
+END $$;
+
+-- 迁移：为 news_articles 补充 source_id 列
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_name = 'news_articles'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'news_articles' AND column_name = 'source_id'
+    ) THEN
+        ALTER TABLE news_articles ADD COLUMN source_id TEXT NOT NULL DEFAULT '';
+    END IF;
+END $$;
+
+-- 迁移：为旧文章回填 title_md5，供唯一索引与 ON CONFLICT 使用
+UPDATE news_articles
+SET title_md5 = md5(title)
+WHERE title_md5 = '';
+
+-- 迁移：删除旧表达式索引，统一改成显式 title_md5 唯一索引
+DROP INDEX IF EXISTS idx_news_articles_title_md5_expr;
+DROP INDEX IF EXISTS idx_news_articles_title_md5;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_news_articles_title_md5
+    ON news_articles (title_md5);
+
+-- 迁移：为 news_articles 补充 summary 列
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_name = 'news_articles'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'news_articles' AND column_name = 'summary'
+    ) THEN
+        ALTER TABLE news_articles ADD COLUMN summary TEXT NOT NULL DEFAULT '';
+    END IF;
+END $$;
+
+-- 迁移：为 news_articles 补充 content 列
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_name = 'news_articles'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'news_articles' AND column_name = 'content'
+    ) THEN
+        ALTER TABLE news_articles ADD COLUMN content TEXT NOT NULL DEFAULT '';
+    END IF;
+END $$;
+
+-- 迁移：收藏表补建（适用于旧环境升级到带“新闻收藏”功能的版本）
+CREATE TABLE IF NOT EXISTS news_article_favorites (
+    id SERIAL PRIMARY KEY,
+    article_id INTEGER NOT NULL REFERENCES news_articles(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
+    thought TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    favorite_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (article_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_news_favorites_user_id
+    ON news_article_favorites (user_id, favorite_time DESC);
+
+CREATE INDEX IF NOT EXISTS idx_news_favorites_article_id
+    ON news_article_favorites (article_id);
+
+-- 迁移：分享表补建（适用于旧环境升级到带“新闻分享”功能的版本）
+CREATE TABLE IF NOT EXISTS news_article_shares (
+    id SERIAL PRIMARY KEY,
+    article_id INTEGER NOT NULL REFERENCES news_articles(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL DEFAULT '',
+    thought TEXT NOT NULL DEFAULT '',
+    share_token TEXT NOT NULL UNIQUE,
+    share_url TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (article_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_news_shares_article_id
+    ON news_article_shares (article_id);
+
+CREATE INDEX IF NOT EXISTS idx_news_shares_user_id
+    ON news_article_shares (user_id, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_news_shares_share_token
+    ON news_article_shares (share_token);

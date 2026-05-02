@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from "vue-router";
 import DashboardView from "./views/DashboardView.vue";
 import LoginView from "./views/auth/LoginView.vue";
 import OpinionView from "./views/OpinionView.vue";
+import ShareView from "./views/ShareView.vue";
 import RolesView from "./views/system/RolesView.vue";
 import UsersView from "./views/system/UsersView.vue";
 import { useSessionStore } from "./stores/session";
@@ -24,6 +25,12 @@ const routes = [
     name: "opinion",
     component: OpinionView,
     meta: { title: "舆情纵览" },
+  },
+  {
+    path: "/share/:token",
+    name: "share",
+    component: ShareView,
+    meta: { public: true, title: "分享详情" },
   },
   {
     path: "/roles",

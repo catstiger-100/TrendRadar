@@ -5,6 +5,13 @@ import { ElMessage } from "element-plus";
 import { ArrowDown, House, List, Lock, Menu, Setting, User, UserFilled } from "@element-plus/icons-vue";
 import { useSessionStore } from "../stores/session";
 
+const props = defineProps({
+  showHeader: {
+    type: Boolean,
+    default: true,
+  },
+});
+
 const collapsed = ref(true);
 const mobileMenuOpen = ref(false);
 const isMobile = ref(false);
@@ -241,7 +248,7 @@ onBeforeUnmount(() => {
     </aside>
 
     <div class="console-main">
-      <header class="console-header">
+      <header v-if="props.showHeader" class="console-header">
         <div class="console-header__left">
           <button class="console-toggle" type="button" @click="toggleSidebar">
             <el-icon><Menu /></el-icon>

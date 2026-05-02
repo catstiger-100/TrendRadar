@@ -7,6 +7,8 @@
 
 import os
 import logging
+import hashlib
+from difflib import SequenceMatcher
 from datetime import datetime, date
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -82,6 +84,49 @@ def _normalize_keywords(value: Any) -> List[str]:
     return keywords
 
 
+def _build_title_md5(title: str) -> str:
+    """基于规范化后的标题生成稳定 md5，用于精确去重。"""
+    return hashlib.md5(title.encode("utf-8")).hexdigest()
+
+
+def _normalize_similarity_text(value: Any) -> str:
+    """为相似度比较准备统一文本，尽量忽略空白和常见标点差异。"""
+    text = _normalize_text(value).strip().lower()
+    if not text:
+        return ""
+    for char in (
+        " ", "\t", "\r", "\n",
+        "，", ",", "。", ".", "；", ";", "：", ":", "！", "!", "？", "?",
+        "【", "】", "[", "]", "（", "）", "(", ")", "\"", "'", "“", "”",
+    ):
+        text = text.replace(char, "")
+    return text
+
+
+def _is_similar_to_title(title: str, candidate: Any, threshold: float = 0.8) -> bool:
+    """判断摘要/正文是否与标题过于相似，避免把标题原样写入详情字段。"""
+    normalized_title = _normalize_similarity_text(title)
+    normalized_candidate = _normalize_similarity_text(candidate)
+    if not normalized_title or not normalized_candidate:
+        return False
+    similarity = SequenceMatcher(None, normalized_title, normalized_candidate).ratio()
+    return similarity >= threshold
+
+
+def _sanitize_article_detail_fields(article: Dict[str, Any], title: str) -> None:
+    """如果摘要/正文与标题过于相似，则在入库前清空这些字段。"""
+    summary = _normalize_text(article.get("summary")).strip()
+    content = _normalize_text(article.get("content")).strip()
+
+    if summary and _is_similar_to_title(title, summary):
+        summary = ""
+    if content and _is_similar_to_title(title, content):
+        content = ""
+
+    article["summary"] = summary
+    article["content"] = content
+
+
 def save_articles(articles: List[Dict[str, Any]]) -> int:
     """
     批量保存新闻资讯（标题去重）。
@@ -89,7 +134,8 @@ def save_articles(articles: List[Dict[str, Any]]) -> int:
     Args:
         articles: 资讯列表，每条包含:
             title, source_name, source_url, published_at,
-            category_l1, category_l2, keywords, crawl_time
+            category_l1, category_l2, keywords, crawl_time,
+            summary, content, source_id
 
     Returns:
         实际新增的条数
@@ -107,30 +153,40 @@ def save_articles(articles: List[Dict[str, Any]]) -> int:
                 title = _normalize_text(article.get("title")).strip()
                 if not title:
                     continue
+                _sanitize_article_detail_fields(article, title)
 
                 savepoint_created = False
                 try:
                     cur.execute("SAVEPOINT save_article")
                     savepoint_created = True
                     crawl_count = int(article.get("crawl_count", 1) or 1)
+                    title_md5 = _build_title_md5(title)
                     cur.execute(
                         """
-                        INSERT INTO news_articles (title, source_name, source_url, published_at,
-                                                   category_l1, category_l2, keywords, crawl_time, crawl_count)
-                        VALUES (%(title)s, %(source_name)s, %(source_url)s, %(published_at)s,
-                                %(category_l1)s, %(category_l2)s, %(keywords)s, %(crawl_time)s, %(crawl_count)s)
-                        ON CONFLICT ((md5(title))) DO UPDATE SET
+                        INSERT INTO news_articles (title, title_md5, source_name, source_url, source_id, published_at,
+                                                   category_l1, category_l2, keywords, summary, content, crawl_time, crawl_count)
+                        VALUES (%(title)s, %(title_md5)s, %(source_name)s, %(source_url)s, %(source_id)s, %(published_at)s,
+                                %(category_l1)s, %(category_l2)s, %(keywords)s,
+                                %(summary)s, %(content)s, %(crawl_time)s, %(crawl_count)s)
+                        ON CONFLICT (title_md5) DO UPDATE SET
                             crawl_count = GREATEST(news_articles.crawl_count, EXCLUDED.crawl_count),
-                            crawl_time = EXCLUDED.crawl_time
+                            crawl_time = EXCLUDED.crawl_time,
+                            source_id = COALESCE(NULLIF(EXCLUDED.source_id, ''), news_articles.source_id),
+                            summary = COALESCE(NULLIF(EXCLUDED.summary, ''), news_articles.summary),
+                            content = COALESCE(NULLIF(EXCLUDED.content, ''), news_articles.content)
 """,
                         {
                             "title": title,
+                            "title_md5": title_md5,
                             "source_name": _normalize_text(article.get("source_name")),
                             "source_url": _normalize_text(article.get("source_url")),
+                            "source_id": _normalize_text(article.get("source_id")),
                             "published_at": article.get("published_at"),
                             "category_l1": _normalize_text(article.get("category_l1")),
                             "category_l2": _normalize_text(article.get("category_l2")),
                             "keywords": _normalize_keywords(article.get("keywords")),
+                            "summary": _normalize_text(article.get("summary")),
+                            "content": _normalize_text(article.get("content")),
                             "crawl_time": article.get("crawl_time") or datetime.now(),
                             "crawl_count": crawl_count,
                         },
@@ -162,6 +218,8 @@ def query_articles(
     keyword: Optional[str] = None,
     query_date: Optional[str] = None,
     source_name: Optional[str] = None,
+    favorite_only: bool = False,
+    favorite_article_ids: Optional[List[int]] = None,
     page: int = 1,
     page_size: int = 20,
 ) -> Tuple[List[Dict[str, Any]], int]:
@@ -211,6 +269,13 @@ def query_articles(
             conditions.append("source_name = %(source_name)s")
             params["source_name"] = source_name.strip()
 
+        if favorite_only:
+            article_ids = [int(article_id) for article_id in (favorite_article_ids or [])]
+            if not article_ids:
+                return [], 0
+            conditions.append("id = ANY(%(favorite_article_ids)s::int[])")
+            params["favorite_article_ids"] = article_ids
+
         where_clause = ""
         if conditions:
             where_clause = "WHERE " + " AND ".join(conditions)
@@ -226,8 +291,8 @@ def query_articles(
         params["offset"] = offset
         cur.execute(
             f"""
-            SELECT id, title, source_name, source_url, published_at,
-                   category_l1, category_l2, keywords, crawl_time, created_at, crawl_count
+            SELECT id, title, source_name, source_url, source_id, published_at,
+                   category_l1, category_l2, keywords, summary, content, crawl_time, created_at, crawl_count
             FROM news_articles
             {where_clause}
             ORDER BY published_at DESC NULLS LAST, created_at DESC
@@ -237,8 +302,9 @@ def query_articles(
         )
 
         columns = [
-            "id", "title", "source_name", "source_url", "published_at",
-            "category_l1", "category_l2", "keywords", "crawl_time", "created_at", "crawl_count",
+            "id", "title", "source_name", "source_url", "source_id", "published_at",
+            "category_l1", "category_l2", "keywords", "summary", "content",
+            "crawl_time", "created_at", "crawl_count",
         ]
         rows = []
         for record in cur.fetchall():
@@ -303,6 +369,49 @@ def get_all_source_names() -> List[str]:
         conn.rollback()
         logger.error(f"获取来源列表失败: {e}")
         return []
+    finally:
+        _put_conn(conn)
+
+
+def ensure_news_article_columns() -> None:
+    """兼容旧库：为 news_articles 补充详情字段。"""
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        for column_name, ddl in [
+            ("title_md5", "ALTER TABLE news_articles ADD COLUMN title_md5 TEXT NOT NULL DEFAULT ''"),
+            ("source_id", "ALTER TABLE news_articles ADD COLUMN source_id TEXT NOT NULL DEFAULT ''"),
+            ("summary", "ALTER TABLE news_articles ADD COLUMN summary TEXT NOT NULL DEFAULT ''"),
+            ("content", "ALTER TABLE news_articles ADD COLUMN content TEXT NOT NULL DEFAULT ''"),
+        ]:
+            cur.execute(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_name = 'news_articles'
+                      AND column_name = %s
+                )
+                """,
+                (column_name,),
+            )
+            exists = cur.fetchone()[0]
+            if not exists:
+                cur.execute(ddl)
+
+        cur.execute("UPDATE news_articles SET title_md5 = md5(title) WHERE title_md5 = ''")
+        cur.execute("DROP INDEX IF EXISTS idx_news_articles_title_md5")
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_news_articles_title_md5
+            ON news_articles (title_md5)
+            """
+        )
+        conn.commit()
+        cur.close()
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"补充 news_articles 字段失败: {e}")
     finally:
         _put_conn(conn)
 

@@ -974,7 +974,11 @@ class NewsAnalyzer:
     def _save_articles_to_postgres(self, stats: List[Dict]) -> None:
         """将分析结果中的匹配文章保存到 PostgreSQL。"""
         try:
-            from trendradar.storage.news_repository import save_articles
+            from trendradar.crawler.article_enricher import ArticleContentEnricher
+            from trendradar.storage.news_repository import (
+                ensure_news_article_columns,
+                save_articles,
+            )
 
             if not hasattr(self, "_keyword_category_map"):
                 self._keyword_category_map = self._build_keyword_category_map()
@@ -988,19 +992,28 @@ class NewsAnalyzer:
                 cat_l1, cat_l2 = keyword_map.get(display_name, ("", ""))
                 for title_data in stat.get("titles", []):
                     matched_kw = title_data.get("matched_keywords", [])
+                    source_id = str(title_data.get("source_id", "") or "")
                     articles.append({
                         "title": title_data.get("title", ""),
+                        "source_id": source_id,
                         "source_name": title_data.get("source_name", ""),
                         "source_url": title_data.get("url", ""),
                         "published_at": now,
                         "category_l1": cat_l1,
                         "category_l2": cat_l2,
                         "keywords": matched_kw,
+                        "summary": "",
+                        "content": "",
                         "crawl_time": now,
                         "crawl_count": title_data.get("count", 1),
                     })
 
             if articles:
+                ensure_news_article_columns()
+                # 详情增强作为独立层处理，避免污染热榜抓取主链路。
+                proxy_url = self.ctx.config.get("PROXY_URL") or self.ctx.config.get("HTTP_PROXY")
+                enricher = ArticleContentEnricher(proxy_url=proxy_url)
+                articles = enricher.enrich_articles(articles)
                 saved = save_articles(articles)
                 if saved > 0:
                     print(f"[DB] 已保存 {saved} 条新资讯到 PostgreSQL")
