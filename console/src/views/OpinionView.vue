@@ -76,6 +76,43 @@ function heatLevel(count) {
   return "low";
 }
 
+function aiDirectionClass(direction) {
+  if (direction === "看多") return "opinion-ai-pill--bull";
+  if (direction === "看空") return "opinion-ai-pill--bear";
+  return "opinion-ai-pill--neutral";
+}
+
+function aiDirectionLabel(direction) {
+  if (direction === "看多") return "利多";
+  if (direction === "看空") return "利空";
+  return "中性";
+}
+
+function aiInterpretTooltip(row) {
+  if (row?.ai_interpret_status !== "已解读") return "";
+  return row.ai_one_line_summary || row.ai_interpret_result || "暂无解读内容";
+}
+
+function aiSymbolCode(symbol) {
+  return symbol?.symbol_code || symbol?.symbol_name || "-";
+}
+
+function aiStrengthStars(strength) {
+  const count = Math.min(5, Math.max(1, Number(strength || 1)));
+  return "★".repeat(count) + "☆".repeat(5 - count);
+}
+
+function strongestSymbol(symbols) {
+  if (!symbols || !symbols.length) return null;
+  return [...symbols].sort((a, b) => (b.strength || 0) - (a.strength || 0))[0];
+}
+
+function interpretStatusLabel(status) {
+  if (status === "已解读") return "已解读";
+  if (status === "解读中") return "解读中";
+  return "待解读";
+}
+
 function clampTableFontSize(size) {
   return Math.min(TABLE_FONT_MAX, Math.max(TABLE_FONT_MIN, size));
 }
@@ -430,10 +467,13 @@ onMounted(() => {
                   </button>
                 </div>
                 <div class="opinion-title-main">
-                  <span
+                  <a
+                    :href="row.source_url || '#'"
+                    target="_blank"
+                    rel="noreferrer"
                     class="opinion-title"
                     v-html="highlight(row.title, highlightKeyword)"
-                  ></span>
+                  ></a>
                   <p
                     v-if="row.favorite?.thought"
                     class="opinion-thought"
@@ -447,6 +487,37 @@ onMounted(() => {
           <el-table-column prop="source_name" label="来源" width="120" align="center">
             <template #default="{ row }">
               <span class="opinion-source-tag">{{ row.source_name || '-' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="AI解读" width="170" align="center">
+            <template #default="{ row }">
+              <el-tooltip
+                v-if="strongestSymbol(row.ai_symbols)"
+                :content="aiInterpretTooltip(row)"
+                :disabled="!aiInterpretTooltip(row)"
+                placement="top"
+                effect="dark"
+              >
+                <span
+                  class="opinion-ai-pill"
+                  :class="aiDirectionClass(strongestSymbol(row.ai_symbols).direction)"
+                >
+                  <span>{{ aiSymbolCode(strongestSymbol(row.ai_symbols)) }}</span>
+                  <span>{{ aiDirectionLabel(strongestSymbol(row.ai_symbols).direction) }}</span>
+                  <span>{{ aiStrengthStars(strongestSymbol(row.ai_symbols).strength) }}</span>
+                </span>
+              </el-tooltip>
+              <el-tooltip
+                v-else
+                :content="aiInterpretTooltip(row)"
+                :disabled="!aiInterpretTooltip(row)"
+                placement="top"
+                effect="dark"
+              >
+                <span class="opinion-ai-status">
+                  {{ interpretStatusLabel(row.ai_interpret_status) }}
+                </span>
+              </el-tooltip>
             </template>
           </el-table-column>
           <el-table-column prop="crawl_count" label="热度" width="90" align="center">
@@ -498,6 +569,9 @@ onMounted(() => {
                 <span class="opinion-card-pill source">{{ row.source_name || "-" }}</span>
                 <span class="opinion-card-pill time">{{ formatTime(row.published_at) }}</span>
                 <span class="opinion-card-pill freq">{{ row.crawl_count || 1 }}次</span>
+                <span class="opinion-card-pill opinion-card-ai-status">
+                  {{ interpretStatusLabel(row.ai_interpret_status) }}
+                </span>
                 <button
                   type="button"
                   class="opinion-card-pill opinion-card-pill--favorite"
@@ -525,6 +599,21 @@ onMounted(() => {
                 >
                   {{ kw }}
                 </span>
+                <div
+                  v-if="row.ai_symbols && row.ai_symbols.length"
+                  class="opinion-card-ai-list"
+                >
+                  <span
+                    v-for="item in row.ai_symbols"
+                    :key="`${row.id}-${item.symbol_code}-${item.direction}`"
+                    class="opinion-ai-pill"
+                    :class="aiDirectionClass(item.direction)"
+                  >
+                    <span>{{ aiSymbolCode(item) }}</span>
+                    <span>{{ aiDirectionLabel(item.direction) }}</span>
+                    <span>{{ aiStrengthStars(item.strength) }}</span>
+                  </span>
+                </div>
               </div>
 
               <div class="opinion-card-title-row">
@@ -540,6 +629,9 @@ onMounted(() => {
 
               <p v-if="row.summary" class="opinion-card-summary">
                 {{ row.summary }}
+              </p>
+              <p v-if="row.ai_one_line_summary" class="opinion-card-ai-summary">
+                ✨ {{ row.ai_one_line_summary }}
               </p>
               <p v-if="row.favorite?.thought" class="opinion-card-thought">
                 我的思路：{{ row.favorite.thought }}
@@ -1179,6 +1271,64 @@ onMounted(() => {
   color: rgba(255, 209, 102, 0.88);
 }
 
+.opinion-card-ai-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.opinion-card-ai-summary {
+  margin: 10px 0 0;
+  color: rgba(255, 209, 102, 0.88);
+  font-size: var(--opinion-table-font-size);
+  line-height: 1.7;
+}
+
+:global(.theme--light .opinion-card-ai-summary) {
+  color: #b8860b;
+}
+
+.opinion-ai-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: rgba(184, 216, 248, 0.62);
+  background: rgba(100, 116, 139, 0.16);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow: 0 0 12px rgba(100, 116, 139, 0.12);
+  font-size: calc(var(--opinion-table-font-size) - 2px);
+}
+
+:global(.theme--light .opinion-ai-status) {
+  color: #606266;
+  background: #f4f4f5;
+  border-color: #dcdfe6;
+  box-shadow: none;
+}
+
+.opinion-card-ai-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(0, 212, 255, 0.08);
+  color: var(--console-text-soft);
+  font-size: calc(var(--opinion-table-font-size) - 2px);
+}
+
+.opinion-card-ai-status--done {
+  cursor: help;
+}
+
+.opinion-card-ai-status--done:hover,
+.opinion-ai-status:hover {
+  border-color: rgba(0, 212, 255, 0.32);
+  box-shadow: 0 0 16px rgba(0, 212, 255, 0.18);
+}
+
 :global(.theme--light .opinion-card-thought) {
   color: #e6a23c;
 }
@@ -1381,6 +1531,42 @@ onMounted(() => {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.opinion-ai-inline {
+  margin-top: 8px;
+}
+
+.opinion-ai-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: calc(var(--opinion-table-font-size) - 2px);
+  line-height: 1;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.opinion-ai-pill--bull {
+  color: var(--console-danger);
+  background: rgba(255, 107, 107, 0.12);
+  border: 1px solid rgba(255, 107, 107, 0.2);
+  box-shadow: 0 0 12px rgba(255, 107, 107, 0.18);
+}
+
+.opinion-ai-pill--bear {
+  color: #3df6b0;
+  background: rgba(61, 246, 176, 0.11);
+  border: 1px solid rgba(61, 246, 176, 0.2);
+  box-shadow: 0 0 12px rgba(61, 246, 176, 0.16);
+}
+
+.opinion-ai-pill--neutral {
+  color: rgba(184, 216, 248, 0.62);
+  background: rgba(100, 116, 139, 0.16);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow: 0 0 12px rgba(100, 116, 139, 0.12);
 }
 
 :global(.theme--light .opinion-thought) {

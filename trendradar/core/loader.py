@@ -13,6 +13,7 @@ import yaml
 
 from .config import parse_multi_account_config, validate_paired_configs
 from trendradar.utils.time import DEFAULT_TIMEZONE
+from trendradar.storage import ai_model_repository
 
 
 def _get_env_bool(key: str, default: bool = False) -> Optional[bool]:
@@ -272,14 +273,16 @@ def _load_display_config(config_data: Dict) -> Dict:
 def _load_ai_config(config_data: Dict) -> Dict:
     """加载 AI 模型配置（LiteLLM 格式）"""
     ai_config = config_data.get("ai", {})
+    runtime_configs = ai_model_repository.build_runtime_ai_configs()
+    runtime_shared = runtime_configs.get("shared", {})
 
     timeout_env = _get_env_int_or_none("AI_TIMEOUT")
 
     return {
         # LiteLLM 核心配置
-        "MODEL": _get_env_str("AI_MODEL") or ai_config.get("model", ""),
-        "API_KEY": _get_env_str("AI_API_KEY") or ai_config.get("api_key", ""),
-        "API_BASE": _get_env_str("AI_API_BASE") or ai_config.get("api_base", ""),
+        "MODEL": _get_env_str("AI_MODEL") or runtime_shared.get("MODEL") or ai_config.get("model", ""),
+        "API_KEY": _get_env_str("AI_API_KEY") or runtime_shared.get("API_KEY") or ai_config.get("api_key", ""),
+        "API_BASE": _get_env_str("AI_API_BASE") or runtime_shared.get("API_BASE") or ai_config.get("api_base", ""),
 
         # 生成参数
         "TIMEOUT": timeout_env if timeout_env is not None else ai_config.get("timeout", 120),
@@ -550,6 +553,9 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
 
     # AI 模型共享配置
     config["AI"] = _load_ai_config(config_data)
+    runtime_ai_configs = ai_model_repository.build_runtime_ai_configs()
+    config["AI_FAST"] = runtime_ai_configs.get("fast", {})
+    config["AI_REASONING"] = runtime_ai_configs.get("reasoning", {})
 
     # AI 分析配置
     config["AI_ANALYSIS"] = _load_ai_analysis_config(config_data)

@@ -2,7 +2,7 @@
 import { computed, ref, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { ArrowDown, House, List, Lock, Menu, Moon, Setting, Sunny, User, UserFilled } from "@element-plus/icons-vue";
+import { ArrowDown, CollectionTag, Cpu, House, List, Lock, Menu, Moon, Setting, Sunny, User, UserFilled } from "@element-plus/icons-vue";
 import { useSessionStore } from "../stores/session";
 
 const props = defineProps({
@@ -26,6 +26,8 @@ const menuItems = [
 ];
 
 const settingsItems = [
+  { key: "ai-models", label: "AI模型管理", icon: Cpu, route: "/ai-models" },
+  { key: "futures-symbols", label: "期货品种", icon: CollectionTag, route: "/futures-symbols" },
   { key: "roles", label: "角色管理", icon: Setting, route: "/roles" },
   { key: "users", label: "用户管理", icon: UserFilled, route: "/users" },
 ];

@@ -3,6 +3,8 @@ import DashboardView from "./views/DashboardView.vue";
 import LoginView from "./views/auth/LoginView.vue";
 import OpinionView from "./views/OpinionView.vue";
 import ShareView from "./views/ShareView.vue";
+import AiModelsView from "./views/system/AiModelsView.vue";
+import FuturesSymbolsView from "./views/system/FuturesSymbolsView.vue";
 import RolesView from "./views/system/RolesView.vue";
 import UsersView from "./views/system/UsersView.vue";
 import { useSessionStore } from "./stores/session";
@@ -31,6 +33,18 @@ const routes = [
     name: "share",
     component: ShareView,
     meta: { public: true, title: "分享详情" },
+  },
+  {
+    path: "/ai-models",
+    name: "ai-models",
+    component: AiModelsView,
+    meta: { title: "AI模型管理" },
+  },
+  {
+    path: "/futures-symbols",
+    name: "futures-symbols",
+    component: FuturesSymbolsView,
+    meta: { title: "期货品种" },
   },
   {
     path: "/roles",

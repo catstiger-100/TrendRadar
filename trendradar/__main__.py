@@ -564,7 +564,7 @@ class NewsAnalyzer:
 
         print("[AI] 正在进行 AI 分析...")
         try:
-            ai_config = self.ctx.config.get("AI", {})
+            ai_config = self.ctx.config.get("AI_REASONING", {}) or self.ctx.config.get("AI", {})
             debug_mode = self.ctx.config.get("DEBUG", False)
             analyzer = AIAnalyzer(ai_config, analysis_config, self.ctx.get_time, debug=debug_mode)
 

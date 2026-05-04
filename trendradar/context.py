@@ -500,7 +500,7 @@ class AppContext:
         translator = None
         trans_config = self.config.get("AI_TRANSLATION", {})
         if trans_config.get("ENABLED", False):
-            ai_config = self.config.get("AI", {})
+            ai_config = self.config.get("AI_FAST", {}) or self.config.get("AI", {})
             translator = AITranslator(trans_config, ai_config)
 
         return NotificationDispatcher(

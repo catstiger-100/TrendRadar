@@ -29,6 +29,8 @@ from trendradar.core.frequency import (
     parse_frequency_words_for_display,
 )
 from trendradar.storage import auth_repository
+from trendradar.storage import ai_model_repository
+from trendradar.storage import futures_symbol_repository
 from trendradar.storage import news_favorite_repository
 from trendradar.storage import news_share_repository
 from trendradar.storage.news_repository import ensure_news_article_columns
@@ -191,6 +193,12 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/roles":
             self._send_roles()
             return
+        if path == "/api/ai-models":
+            self._send_ai_models()
+            return
+        if path == "/api/futures-symbols":
+            self._send_futures_symbols()
+            return
         if path == "/api/users":
             self._send_users()
             return
@@ -230,6 +238,15 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/roles":
             self._create_role()
             return
+        if path == "/api/ai-models":
+            self._update_ai_models()
+            return
+        if path == "/api/ai-models/test":
+            self._test_ai_model()
+            return
+        if path == "/api/futures-symbols":
+            self._create_futures_symbol()
+            return
         if path == "/api/users":
             self._create_user()
             return
@@ -239,6 +256,9 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         path = urlparse(self.path).path
         if path.startswith("/api/roles/"):
             self._update_role(path)
+            return
+        if path.startswith("/api/futures-symbols/"):
+            self._update_futures_symbol(path)
             return
         if path.startswith("/api/users/"):
             self._update_user(path)
@@ -252,6 +272,9 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
             return
         if path.startswith("/api/roles/"):
             self._delete_role(path)
+            return
+        if path.startswith("/api/futures-symbols/"):
+            self._delete_futures_symbol(path)
             return
         if path.startswith("/api/users/"):
             self._delete_user(path)
@@ -867,6 +890,63 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 
+    def _send_ai_models(self):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            self._send_json(
+                200,
+                {
+                    "settings": ai_model_repository.get_settings(),
+                    "provider_presets": ai_model_repository.get_provider_presets(),
+                },
+            )
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _send_futures_symbols(self):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            self._send_json(200, {"items": futures_symbol_repository.list_symbols()})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _update_ai_models(self):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            payload = self._read_json_body()
+            settings = ai_model_repository.update_settings(payload)
+            self._send_json(
+                200,
+                {
+                    "settings": settings,
+                    "message": "AI 模型配置已保存",
+                },
+            )
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _test_ai_model(self):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            payload = self._read_json_body()
+            model_type = str(payload.get("model_type", "") or "").strip()
+            result = ai_model_repository.test_model_connection(model_type, payload)
+            self._send_json(200, result)
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
     def _create_role(self):
         user = self._require_auth()
         if not user:
@@ -876,6 +956,24 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
             item = auth_repository.create_role(
                 name=payload.get("name", ""),
                 description=payload.get("description", ""),
+            )
+            self._send_json(201, {"item": item})
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _create_futures_symbol(self):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            payload = self._read_json_body()
+            item = futures_symbol_repository.create_symbol(
+                name=payload.get("name", ""),
+                code=payload.get("code", ""),
+                sector=payload.get("sector", ""),
+                exchange=payload.get("exchange", ""),
             )
             self._send_json(201, {"item": item})
         except ValueError as exc:
@@ -901,6 +999,26 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 
+    def _update_futures_symbol(self, path):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            symbol_id = self._parse_id_from_path(path, "/api/futures-symbols/")
+            payload = self._read_json_body()
+            item = futures_symbol_repository.update_symbol(
+                symbol_id=symbol_id,
+                name=payload.get("name", ""),
+                code=payload.get("code", ""),
+                sector=payload.get("sector", ""),
+                exchange=payload.get("exchange", ""),
+            )
+            self._send_json(200, {"item": item})
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
     def _delete_role(self, path):
         user = self._require_auth()
         if not user:
@@ -909,6 +1027,19 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
             role_id = self._parse_id_from_path(path, "/api/roles/")
             auth_repository.delete_role(role_id)
             self._send_json(200, {"message": "角色已删除"})
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _delete_futures_symbol(self, path):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            symbol_id = self._parse_id_from_path(path, "/api/futures-symbols/")
+            futures_symbol_repository.delete_symbol(symbol_id)
+            self._send_json(200, {"message": "期货品种已删除"})
         except ValueError as exc:
             self._send_json(400, {"error": str(exc)})
         except Exception as exc:
@@ -982,9 +1113,18 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
 def run(host="0.0.0.0", port=8080):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     auth_repository.ensure_schema()
+    ai_model_repository.ensure_schema()
+    futures_symbol_repository.ensure_schema()
     ensure_news_article_columns()
     news_favorite_repository.ensure_schema()
     news_share_repository.ensure_schema()
+    try:
+        from trendradar.ai.news_interpreter import enqueue_pending_interpretations
+        pending = enqueue_pending_interpretations(limit=30)
+        if pending:
+            print(f"AI 新闻解读启动补跑任务: {pending} 条")
+    except Exception as exc:
+        print(f"AI 新闻解读补跑任务启动失败: {exc}")
     server = ThreadingHTTPServer((host, port), AdminRequestHandler)
     print(f"TrendRadar 管理服务已启动: http://{host}:{port}")
     print(f"报告目录: {OUTPUT_DIR}")

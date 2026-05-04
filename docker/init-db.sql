@@ -85,6 +85,79 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions (user_id);
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions (expires_at);
 
+-- ============================================
+-- 期货品种表
+-- 对应“系统设置 -> 期货品种”功能
+-- 说明：
+-- - 维护常见期货品种基础信息
+-- - code 唯一，方便后续用于匹配新闻、配置规则或扩展联动
+-- ============================================
+CREATE TABLE IF NOT EXISTS futures_symbols (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    code TEXT NOT NULL UNIQUE,
+    sector TEXT NOT NULL DEFAULT '',
+    exchange TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_futures_symbols_name_unique
+    ON futures_symbols (name);
+
+CREATE INDEX IF NOT EXISTS idx_futures_symbols_exchange
+    ON futures_symbols (exchange);
+
+CREATE INDEX IF NOT EXISTS idx_futures_symbols_sector
+    ON futures_symbols (sector);
+
+-- ============================================
+-- AI 模型配置表
+-- 对应“系统设置 -> AI模型管理”功能
+-- 说明：
+-- - 采用单行配置（id 固定为 1），保存“快速模型 / 深度思考模型”两套配置
+-- - 快速模型默认用于翻译、轻量任务
+-- - 深度思考模型默认用于 AI 热点分析
+-- ============================================
+CREATE TABLE IF NOT EXISTS ai_model_settings (
+    id SMALLINT PRIMARY KEY DEFAULT 1,
+    fast_model_name TEXT NOT NULL DEFAULT '',
+    fast_provider TEXT NOT NULL DEFAULT '',
+    fast_base_url TEXT NOT NULL DEFAULT '',
+    fast_api_key TEXT NOT NULL DEFAULT '',
+    reasoning_model_name TEXT NOT NULL DEFAULT '',
+    reasoning_provider TEXT NOT NULL DEFAULT '',
+    reasoning_base_url TEXT NOT NULL DEFAULT '',
+    reasoning_api_key TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ai_model_settings_singleton CHECK (id = 1)
+);
+
+INSERT INTO ai_model_settings (id)
+VALUES (1)
+ON CONFLICT (id) DO NOTHING;
+
+-- 迁移：期货品种表补建（适用于旧环境升级到带“期货品种维护”功能的版本）
+CREATE TABLE IF NOT EXISTS futures_symbols (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    code TEXT NOT NULL UNIQUE,
+    sector TEXT NOT NULL DEFAULT '',
+    exchange TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_futures_symbols_name_unique
+    ON futures_symbols (name);
+
+CREATE INDEX IF NOT EXISTS idx_futures_symbols_exchange
+    ON futures_symbols (exchange);
+
+CREATE INDEX IF NOT EXISTS idx_futures_symbols_sector
+    ON futures_symbols (sector);
+
 -- 平台信息表
 CREATE TABLE IF NOT EXISTS platforms (
     id TEXT PRIMARY KEY,
@@ -231,9 +304,27 @@ CREATE TABLE IF NOT EXISTS news_articles (
     keywords TEXT[] NOT NULL DEFAULT '{}',
     summary TEXT NOT NULL DEFAULT '',
     content TEXT NOT NULL DEFAULT '',
+    ai_interpret_status TEXT NOT NULL DEFAULT '待解读',
+    ai_interpret_result TEXT NOT NULL DEFAULT '',
+    ai_one_line_summary TEXT NOT NULL DEFAULT '',
     crawl_count INTEGER NOT NULL DEFAULT 1,
     crawl_time TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+-- 新闻 AI 解读关联表
+-- 说明：
+-- - 一条新闻可关联最多多个期货品种
+-- - 保存方向、强度，供前端列表/卡片展示
+CREATE TABLE IF NOT EXISTS news_article_ai_symbols (
+    id SERIAL PRIMARY KEY,
+    article_id INTEGER NOT NULL REFERENCES news_articles(id) ON DELETE CASCADE,
+    title TEXT NOT NULL DEFAULT '',
+    symbol_name TEXT NOT NULL DEFAULT '',
+    symbol_code TEXT NOT NULL DEFAULT '',
+    direction TEXT NOT NULL DEFAULT '中性',
+    strength INTEGER NOT NULL DEFAULT 3,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ============================================
@@ -295,6 +386,7 @@ CREATE INDEX IF NOT EXISTS idx_news_articles_published_at ON news_articles (publ
 
 -- 抓取时间索引
 CREATE INDEX IF NOT EXISTS idx_news_articles_crawl_time ON news_articles (crawl_time DESC);
+CREATE INDEX IF NOT EXISTS idx_news_articles_ai_interpret_status ON news_articles (ai_interpret_status);
 
 -- 一级分类索引
 CREATE INDEX IF NOT EXISTS idx_news_articles_category_l1 ON news_articles (category_l1);
@@ -319,6 +411,32 @@ CREATE INDEX IF NOT EXISTS idx_news_shares_user_id
 
 CREATE INDEX IF NOT EXISTS idx_news_shares_share_token
     ON news_article_shares (share_token);
+
+CREATE INDEX IF NOT EXISTS idx_news_article_ai_symbols_article_id
+    ON news_article_ai_symbols (article_id);
+
+CREATE INDEX IF NOT EXISTS idx_news_article_ai_symbols_strength
+    ON news_article_ai_symbols (article_id, strength DESC);
+
+-- 迁移：AI 模型配置表补建（适用于旧环境升级到带“AI模型管理”功能的版本）
+CREATE TABLE IF NOT EXISTS ai_model_settings (
+    id SMALLINT PRIMARY KEY DEFAULT 1,
+    fast_model_name TEXT NOT NULL DEFAULT '',
+    fast_provider TEXT NOT NULL DEFAULT '',
+    fast_base_url TEXT NOT NULL DEFAULT '',
+    fast_api_key TEXT NOT NULL DEFAULT '',
+    reasoning_model_name TEXT NOT NULL DEFAULT '',
+    reasoning_provider TEXT NOT NULL DEFAULT '',
+    reasoning_base_url TEXT NOT NULL DEFAULT '',
+    reasoning_api_key TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ai_model_settings_singleton CHECK (id = 1)
+);
+
+INSERT INTO ai_model_settings (id)
+VALUES (1)
+ON CONFLICT (id) DO NOTHING;
 
 -- 平台索引
 CREATE INDEX IF NOT EXISTS idx_news_platform ON news_items(platform_id);
@@ -450,6 +568,52 @@ BEGIN
     END IF;
 END $$;
 
+-- 迁移：为 news_articles 补充 ai_interpret_status 列
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_name = 'news_articles'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'news_articles' AND column_name = 'ai_interpret_status'
+    ) THEN
+        ALTER TABLE news_articles ADD COLUMN ai_interpret_status TEXT NOT NULL DEFAULT '待解读';
+    END IF;
+END $$;
+
+-- 迁移：为 news_articles 补充 ai_interpret_result 列
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_name = 'news_articles'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'news_articles' AND column_name = 'ai_interpret_result'
+    ) THEN
+        ALTER TABLE news_articles ADD COLUMN ai_interpret_result TEXT NOT NULL DEFAULT '';
+    END IF;
+END $$;
+
+-- 迁移：为 news_articles 补充 ai_one_line_summary 列
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_name = 'news_articles'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'news_articles' AND column_name = 'ai_one_line_summary'
+    ) THEN
+        ALTER TABLE news_articles ADD COLUMN ai_one_line_summary TEXT NOT NULL DEFAULT '';
+    END IF;
+END $$;
+
+UPDATE news_articles
+SET ai_interpret_status = '待解读'
+WHERE ai_interpret_status = '';
+
 -- 迁移：收藏表补建（适用于旧环境升级到带“新闻收藏”功能的版本）
 CREATE TABLE IF NOT EXISTS news_article_favorites (
     id SERIAL PRIMARY KEY,
@@ -467,6 +631,24 @@ CREATE INDEX IF NOT EXISTS idx_news_favorites_user_id
 
 CREATE INDEX IF NOT EXISTS idx_news_favorites_article_id
     ON news_article_favorites (article_id);
+
+-- 迁移：新闻 AI 解读关联表补建
+CREATE TABLE IF NOT EXISTS news_article_ai_symbols (
+    id SERIAL PRIMARY KEY,
+    article_id INTEGER NOT NULL REFERENCES news_articles(id) ON DELETE CASCADE,
+    title TEXT NOT NULL DEFAULT '',
+    symbol_name TEXT NOT NULL DEFAULT '',
+    symbol_code TEXT NOT NULL DEFAULT '',
+    direction TEXT NOT NULL DEFAULT '中性',
+    strength INTEGER NOT NULL DEFAULT 3,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_news_article_ai_symbols_article_id
+    ON news_article_ai_symbols (article_id);
+
+CREATE INDEX IF NOT EXISTS idx_news_article_ai_symbols_strength
+    ON news_article_ai_symbols (article_id, strength DESC);
 
 -- 迁移：分享表补建（适用于旧环境升级到带“新闻分享”功能的版本）
 CREATE TABLE IF NOT EXISTS news_article_shares (

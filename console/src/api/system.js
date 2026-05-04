@@ -47,3 +47,45 @@ export function deleteUser(id) {
     method: "DELETE",
   });
 }
+
+export function fetchAiModels() {
+  return request("/api/ai-models");
+}
+
+export function updateAiModels(payload) {
+  return request("/api/ai-models", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function testAiModel(payload) {
+  return request("/api/ai-models/test", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchFuturesSymbols() {
+  return request("/api/futures-symbols");
+}
+
+export function createFuturesSymbol(payload) {
+  return request("/api/futures-symbols", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateFuturesSymbol(id, payload) {
+  return request(`/api/futures-symbols/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteFuturesSymbol(id) {
+  return request(`/api/futures-symbols/${id}`, {
+    method: "DELETE",
+  });
+}

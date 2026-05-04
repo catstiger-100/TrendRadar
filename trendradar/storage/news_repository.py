@@ -8,6 +8,7 @@
 import os
 import logging
 import hashlib
+import json
 from difflib import SequenceMatcher
 from datetime import datetime, date
 from typing import Any, Dict, List, Optional, Tuple
@@ -17,6 +18,10 @@ import psycopg2.extras
 import psycopg2.pool
 
 logger = logging.getLogger(__name__)
+
+AI_INTERPRET_STATUS_PENDING = "待解读"
+AI_INTERPRET_STATUS_RUNNING = "解读中"
+AI_INTERPRET_STATUS_DONE = "已解读"
 
 # PostgreSQL 连接配置（从环境变量读取）
 PG_HOST = os.environ.get("PG_HOST", "postgres")
@@ -145,6 +150,7 @@ def save_articles(articles: List[Dict[str, Any]]) -> int:
 
     conn = _get_conn()
     saved = 0
+    saved_article_ids: List[int] = []
     try:
         # Clear any failed transaction state before reusing a pooled connection.
         conn.rollback()
@@ -164,16 +170,23 @@ def save_articles(articles: List[Dict[str, Any]]) -> int:
                     cur.execute(
                         """
                         INSERT INTO news_articles (title, title_md5, source_name, source_url, source_id, published_at,
-                                                   category_l1, category_l2, keywords, summary, content, crawl_time, crawl_count)
+                                                   category_l1, category_l2, keywords, summary, content, crawl_time, crawl_count,
+                                                   ai_interpret_status, ai_interpret_result, ai_one_line_summary)
                         VALUES (%(title)s, %(title_md5)s, %(source_name)s, %(source_url)s, %(source_id)s, %(published_at)s,
                                 %(category_l1)s, %(category_l2)s, %(keywords)s,
-                                %(summary)s, %(content)s, %(crawl_time)s, %(crawl_count)s)
+                                %(summary)s, %(content)s, %(crawl_time)s, %(crawl_count)s,
+                                %(ai_interpret_status)s, %(ai_interpret_result)s, %(ai_one_line_summary)s)
                         ON CONFLICT (title_md5) DO UPDATE SET
                             crawl_count = GREATEST(news_articles.crawl_count, EXCLUDED.crawl_count),
                             crawl_time = EXCLUDED.crawl_time,
                             source_id = COALESCE(NULLIF(EXCLUDED.source_id, ''), news_articles.source_id),
                             summary = COALESCE(NULLIF(EXCLUDED.summary, ''), news_articles.summary),
-                            content = COALESCE(NULLIF(EXCLUDED.content, ''), news_articles.content)
+                            content = COALESCE(NULLIF(EXCLUDED.content, ''), news_articles.content),
+                            ai_interpret_status = CASE
+                                WHEN news_articles.ai_interpret_status = %(ai_interpret_done)s THEN news_articles.ai_interpret_status
+                                ELSE %(ai_interpret_status)s
+                            END
+                        RETURNING id, ai_interpret_status
 """,
                         {
                             "title": title,
@@ -189,8 +202,15 @@ def save_articles(articles: List[Dict[str, Any]]) -> int:
                             "content": _normalize_text(article.get("content")),
                             "crawl_time": article.get("crawl_time") or datetime.now(),
                             "crawl_count": crawl_count,
+                            "ai_interpret_status": AI_INTERPRET_STATUS_PENDING,
+                            "ai_interpret_done": AI_INTERPRET_STATUS_DONE,
+                            "ai_interpret_result": "",
+                            "ai_one_line_summary": "",
                         },
                     )
+                    returned = cur.fetchone()
+                    if returned:
+                        saved_article_ids.append(int(returned[0]))
                     if cur.rowcount > 0:
                         saved += 1
                     cur.execute("RELEASE SAVEPOINT save_article")
@@ -208,6 +228,13 @@ def save_articles(articles: List[Dict[str, Any]]) -> int:
         raise
     finally:
         _put_conn(conn)
+
+    if saved_article_ids:
+        try:
+            from trendradar.ai.news_interpreter import enqueue_article_interpretation
+            enqueue_article_interpretation(saved_article_ids)
+        except Exception as e:
+            logger.warning(f"提交 AI 解读任务失败: {e}")
 
     if saved > 0:
         logger.info(f"已保存 {saved} 条新资讯")
@@ -292,7 +319,8 @@ def query_articles(
         cur.execute(
             f"""
             SELECT id, title, source_name, source_url, source_id, published_at,
-                   category_l1, category_l2, keywords, summary, content, crawl_time, created_at, crawl_count
+                   category_l1, category_l2, keywords, summary, content, crawl_time, created_at, crawl_count,
+                   ai_interpret_status, ai_interpret_result, ai_one_line_summary
             FROM news_articles
             {where_clause}
             ORDER BY published_at DESC NULLS LAST, created_at DESC
@@ -305,7 +333,9 @@ def query_articles(
             "id", "title", "source_name", "source_url", "source_id", "published_at",
             "category_l1", "category_l2", "keywords", "summary", "content",
             "crawl_time", "created_at", "crawl_count",
+            "ai_interpret_status", "ai_interpret_result", "ai_one_line_summary",
         ]
+        article_ids = []
         rows = []
         for record in cur.fetchall():
             row = dict(zip(columns, record))
@@ -313,8 +343,13 @@ def query_articles(
             for dt_field in ("published_at", "crawl_time", "created_at"):
                 if row.get(dt_field):
                     row[dt_field] = row[dt_field].isoformat()
+            article_ids.append(row["id"])
             rows.append(row)
         cur.close()
+
+        ai_symbol_map = get_article_ai_symbols_map(article_ids)
+        for row in rows:
+            row["ai_symbols"] = ai_symbol_map.get(row["id"], [])
 
         return rows, total
     except Exception as e:
@@ -383,6 +418,9 @@ def ensure_news_article_columns() -> None:
             ("source_id", "ALTER TABLE news_articles ADD COLUMN source_id TEXT NOT NULL DEFAULT ''"),
             ("summary", "ALTER TABLE news_articles ADD COLUMN summary TEXT NOT NULL DEFAULT ''"),
             ("content", "ALTER TABLE news_articles ADD COLUMN content TEXT NOT NULL DEFAULT ''"),
+            ("ai_interpret_status", "ALTER TABLE news_articles ADD COLUMN ai_interpret_status TEXT NOT NULL DEFAULT '待解读'"),
+            ("ai_interpret_result", "ALTER TABLE news_articles ADD COLUMN ai_interpret_result TEXT NOT NULL DEFAULT ''"),
+            ("ai_one_line_summary", "ALTER TABLE news_articles ADD COLUMN ai_one_line_summary TEXT NOT NULL DEFAULT ''"),
         ]:
             cur.execute(
                 """
@@ -400,11 +438,44 @@ def ensure_news_article_columns() -> None:
                 cur.execute(ddl)
 
         cur.execute("UPDATE news_articles SET title_md5 = md5(title) WHERE title_md5 = ''")
+        cur.execute(
+            """
+            UPDATE news_articles
+            SET ai_interpret_status = '待解读'
+            WHERE ai_interpret_status = ''
+            """
+        )
         cur.execute("DROP INDEX IF EXISTS idx_news_articles_title_md5")
         cur.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS idx_news_articles_title_md5
             ON news_articles (title_md5)
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS news_article_ai_symbols (
+                id SERIAL PRIMARY KEY,
+                article_id INTEGER NOT NULL REFERENCES news_articles(id) ON DELETE CASCADE,
+                title TEXT NOT NULL DEFAULT '',
+                symbol_name TEXT NOT NULL DEFAULT '',
+                symbol_code TEXT NOT NULL DEFAULT '',
+                direction TEXT NOT NULL DEFAULT '中性',
+                strength INTEGER NOT NULL DEFAULT 3,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_news_article_ai_symbols_article_id
+            ON news_article_ai_symbols (article_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_news_article_ai_symbols_strength
+            ON news_article_ai_symbols (article_id, strength DESC)
             """
         )
         conn.commit()
@@ -435,5 +506,210 @@ def table_exists() -> bool:
     except Exception:
         conn.rollback()
         return False
+    finally:
+        _put_conn(conn)
+
+
+def get_article_for_ai_interpretation(article_id: int) -> Optional[Dict[str, Any]]:
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, title, summary, content, ai_interpret_status
+            FROM news_articles
+            WHERE id = %s
+            """,
+            (article_id,),
+        )
+        row = cur.fetchone()
+        cur.close()
+        if not row:
+            return None
+        return {
+            "id": row[0],
+            "title": row[1] or "",
+            "summary": row[2] or "",
+            "content": row[3] or "",
+            "ai_interpret_status": row[4] or "",
+        }
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        _put_conn(conn)
+
+
+def get_pending_ai_interpretation_article_ids(limit: int = 50) -> List[int]:
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id
+            FROM news_articles
+            WHERE ai_interpret_status IN (%s, %s)
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (AI_INTERPRET_STATUS_PENDING, AI_INTERPRET_STATUS_RUNNING, int(limit)),
+        )
+        rows = [int(row[0]) for row in cur.fetchall()]
+        cur.close()
+        return rows
+    except Exception:
+        conn.rollback()
+        return []
+    finally:
+        _put_conn(conn)
+
+
+def mark_article_ai_interpret_status(article_id: int, status: str) -> None:
+    conn = _get_conn()
+    try:
+        conn.rollback()
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE news_articles SET ai_interpret_status = %s WHERE id = %s",
+            (status, article_id),
+        )
+        conn.commit()
+        cur.close()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        _put_conn(conn)
+
+
+def save_article_ai_interpretation(
+    article_id: int,
+    one_line_summary: str,
+    raw_result: str,
+    symbol_matches: List[Dict[str, Any]],
+) -> None:
+    conn = _get_conn()
+    try:
+        conn.rollback()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE news_articles
+            SET
+                ai_interpret_status = %s,
+                ai_interpret_result = %s,
+                ai_one_line_summary = %s
+            WHERE id = %s
+            """,
+            (
+                AI_INTERPRET_STATUS_DONE,
+                _normalize_text(raw_result),
+                _normalize_text(one_line_summary),
+                article_id,
+            ),
+        )
+        cur.execute(
+            "DELETE FROM news_article_ai_symbols WHERE article_id = %s",
+            (article_id,),
+        )
+        if symbol_matches:
+            cur.execute(
+                "SELECT title FROM news_articles WHERE id = %s",
+                (article_id,),
+            )
+            title_row = cur.fetchone()
+            title = title_row[0] if title_row else ""
+            psycopg2.extras.execute_batch(
+                cur,
+                """
+                INSERT INTO news_article_ai_symbols (
+                    article_id, title, symbol_name, symbol_code, direction, strength, created_at
+                )
+                VALUES (%(article_id)s, %(title)s, %(symbol_name)s, %(symbol_code)s, %(direction)s, %(strength)s, NOW())
+                """,
+                [
+                    {
+                        "article_id": article_id,
+                        "title": title,
+                        "symbol_name": item.get("symbol_name", "") or "",
+                        "symbol_code": item.get("symbol_code", "") or "",
+                        "direction": item.get("direction", "中性") or "中性",
+                        "strength": int(item.get("strength", 3) or 3),
+                    }
+                    for item in symbol_matches[:3]
+                ],
+            )
+        conn.commit()
+        cur.close()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        _put_conn(conn)
+
+
+def get_article_ai_symbols(article_id: int) -> List[Dict[str, Any]]:
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT symbol_name, symbol_code, direction, strength
+            FROM news_article_ai_symbols
+            WHERE article_id = %s
+            ORDER BY strength DESC, id ASC
+            """,
+            (article_id,),
+        )
+        rows = [
+            {
+                "symbol_name": row[0] or "",
+                "symbol_code": row[1] or "",
+                "direction": row[2] or "中性",
+                "strength": int(row[3] or 3),
+            }
+            for row in cur.fetchall()
+        ]
+        cur.close()
+        return rows
+    except Exception:
+        conn.rollback()
+        return []
+    finally:
+        _put_conn(conn)
+
+
+def get_article_ai_symbols_map(article_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
+    normalized_ids = [int(article_id) for article_id in (article_ids or []) if article_id]
+    if not normalized_ids:
+        return {}
+
+    conn = _get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT article_id, symbol_name, symbol_code, direction, strength
+            FROM news_article_ai_symbols
+            WHERE article_id = ANY(%s::int[])
+            ORDER BY article_id ASC, strength DESC, id ASC
+            """,
+            (normalized_ids,),
+        )
+        result: Dict[int, List[Dict[str, Any]]] = {}
+        for row in cur.fetchall():
+            result.setdefault(int(row[0]), []).append(
+                {
+                    "symbol_name": row[1] or "",
+                    "symbol_code": row[2] or "",
+                    "direction": row[3] or "中性",
+                    "strength": int(row[4] or 3),
+                }
+            )
+        cur.close()
+        return result
+    except Exception:
+        conn.rollback()
+        return {}
     finally:
         _put_conn(conn)
