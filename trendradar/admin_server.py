@@ -229,6 +229,9 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/auth/change-password":
             self._change_password()
             return
+        if path == "/api/news/interpret":
+            self._interpret_article()
+            return
         if path == "/api/news/favorites":
             self._create_news_favorite()
             return
@@ -728,6 +731,24 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
                 title=title,
             )
             self._send_json(201, {"favorite": favorite})
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _interpret_article(self):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            from trendradar.ai.news_interpreter import interpret_article_now
+
+            payload = self._read_json_body()
+            article_id = int(payload.get("article_id", 0))
+            if article_id <= 0:
+                raise ValueError("文章 ID 无效")
+            result = interpret_article_now(article_id)
+            self._send_json(200, result)
         except ValueError as exc:
             self._send_json(400, {"error": str(exc)})
         except Exception as exc:

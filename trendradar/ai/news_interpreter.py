@@ -160,31 +160,37 @@ def _worker_loop() -> None:
             _process_single_article(article_id)
         except Exception as exc:
             logger.warning("AI 新闻解读失败: article_id=%s error=%s", article_id, exc)
+            try:
+                news_repository.mark_article_ai_interpret_status(article_id, news_repository.AI_INTERPRET_STATUS_FAILED)
+            except Exception:
+                pass
         finally:
             with _queue_lock:
                 _queue_seen.discard(article_id)
             _task_queue.task_done()
 
 
-def _process_single_article(article_id: int) -> None:
+def _process_single_article(article_id: int) -> Dict[str, Any]:
     article = news_repository.get_article_for_ai_interpretation(article_id)
     if not article:
-        return
+        return {"success": False, "reason": "文章不存在"}
 
     status = article.get("ai_interpret_status", "")
     if status == "已解读":
-        return
+        return {"success": False, "reason": "已解读，无需重复处理"}
+    if status == "解读中":
+        return {"success": False, "reason": "正在解读中，请稍后再试"}
 
     config = load_config()
     ai_config = (config.get("AI_FAST", {}) or {}) if (config.get("AI_FAST", {}) or {}).get("MODEL") else config.get("AI", {})
     if not ai_config.get("MODEL") or not ai_config.get("API_KEY"):
         logger.info("AI 新闻解读跳过: 未配置快速模型或通用 AI 模型")
-        return
+        return {"success": False, "reason": "未配置 AI 模型"}
 
     symbols = futures_symbol_repository.list_symbols() or DEFAULT_SYMBOLS
     if not symbols:
         logger.info("AI 新闻解读跳过: 未配置期货品种")
-        return
+        return {"success": False, "reason": "未配置期货品种"}
 
     client = AIClient(
         {
@@ -198,7 +204,7 @@ def _process_single_article(article_id: int) -> None:
     valid, error = client.validate_config()
     if not valid:
         logger.info("AI 新闻解读跳过，快速模型不可用: %s", error)
-        return
+        return {"success": False, "reason": f"模型不可用: {error}"}
 
     logger.info("AI 新闻解读开始: article_id=%s model=%s", article_id, ai_config.get("MODEL", ""))
     news_repository.mark_article_ai_interpret_status(article_id, "解读中")
@@ -228,6 +234,16 @@ def _process_single_article(article_id: int) -> None:
         symbol_matches=matched_symbols,
     )
     logger.info("AI 新闻解读完成: article_id=%s symbols=%s", article_id, len(matched_symbols))
+    return {
+        "success": True,
+        "one_line_summary": one_line_summary,
+        "symbols": matched_symbols,
+    }
+
+
+def interpret_article_now(article_id: int) -> Dict[str, Any]:
+    """立即解读单篇文章（同步，不走队列），供手动触发使用。"""
+    return _process_single_article(article_id)
 
 
 def enqueue_pending_interpretations(limit: int = 50) -> int:

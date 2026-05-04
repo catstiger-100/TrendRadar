@@ -42,3 +42,10 @@ export function fetchShare(articleId) {
 export function fetchPublicShare(token) {
   return request(`/api/public/shares/${token}`);
 }
+
+export function interpretArticle(articleId) {
+  return request("/api/news/interpret", {
+    method: "POST",
+    body: JSON.stringify({ article_id: articleId }),
+  });
+}

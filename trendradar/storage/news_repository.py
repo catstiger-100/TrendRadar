@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 AI_INTERPRET_STATUS_PENDING = "待解读"
 AI_INTERPRET_STATUS_RUNNING = "解读中"
 AI_INTERPRET_STATUS_DONE = "已解读"
+AI_INTERPRET_STATUS_FAILED = "解读失败"
 
 # PostgreSQL 连接配置（从环境变量读取）
 PG_HOST = os.environ.get("PG_HOST", "postgres")
@@ -549,6 +550,7 @@ def get_pending_ai_interpretation_article_ids(limit: int = 50) -> List[int]:
             SELECT id
             FROM news_articles
             WHERE ai_interpret_status IN (%s, %s)
+              AND created_at > NOW() - INTERVAL '24 hours'
             ORDER BY created_at DESC
             LIMIT %s
             """,

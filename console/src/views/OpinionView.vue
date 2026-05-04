@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { Search, RefreshRight, Share } from "@element-plus/icons-vue";
 import QRCode from "qrcode";
 import ConsoleLayout from "../layout/ConsoleLayout.vue";
@@ -10,6 +10,7 @@ import {
   createFavorite,
   deleteFavorite,
   createOrUpdateShare,
+  interpretArticle,
 } from "../api/news";
 
 const items = ref([]);
@@ -110,7 +111,55 @@ function strongestSymbol(symbols) {
 function interpretStatusLabel(status) {
   if (status === "已解读") return "已解读";
   if (status === "解读中") return "解读中";
+  if (status === "解读失败") return "解读失败";
   return "待解读";
+}
+
+function interpretStatusClass(status) {
+  if (status === "已解读") return "opinion-status--done";
+  if (status === "解读中") return "opinion-status--running";
+  if (status === "解读失败") return "opinion-status--failed";
+  return "opinion-status--pending";
+}
+
+async function triggerInterpret(row) {
+  if (row.ai_interpret_status === "已解读" || row.ai_interpret_status === "解读中") return;
+  try {
+    await ElMessageBox.confirm("是否立即解读？", "AI 解读", {
+      confirmButtonText: "确定",
+      cancelButtonText: "取消",
+      type: "info",
+    });
+  } catch {
+    return;
+  }
+  row.ai_interpret_status = "解读中";
+  try {
+    const result = await interpretArticle(row.id);
+    if (result.success) {
+      row.ai_interpret_status = "已解读";
+      row.ai_one_line_summary = result.one_line_summary || "";
+      row.ai_interpret_result = result.one_line_summary || "";
+      if (result.symbols && result.symbols.length) {
+        row.ai_symbols = result.symbols.map((s) => ({
+          symbol_name: s.symbol_name,
+          symbol_code: s.symbol_code,
+          direction: s.direction,
+          strength: s.strength,
+        }));
+      }
+      ElMessage.success("解读完成");
+    } else if (result.reason && result.reason.includes("已解读")) {
+      row.ai_interpret_status = "已解读";
+      ElMessage.info("该文章已被后台解读完成，刷新页面可查看完整结果");
+    } else {
+      row.ai_interpret_status = "解读失败";
+      ElMessage.warning(result.reason || "解读失败");
+    }
+  } catch (e) {
+    row.ai_interpret_status = "解读失败";
+    ElMessage.error(e.message || "解读失败");
+  }
 }
 
 function clampTableFontSize(size) {
@@ -489,6 +538,17 @@ onMounted(() => {
               <span class="opinion-source-tag">{{ row.source_name || '-' }}</span>
             </template>
           </el-table-column>
+          <el-table-column label="解读状态" width="110" align="center">
+            <template #default="{ row }">
+              <span
+                class="opinion-status-tag"
+                :class="[interpretStatusClass(row.ai_interpret_status), { 'opinion-status-tag--clickable': row.ai_interpret_status !== '已解读' && row.ai_interpret_status !== '解读中' }]"
+                @click="triggerInterpret(row)"
+              >
+                {{ interpretStatusLabel(row.ai_interpret_status) }}
+              </span>
+            </template>
+          </el-table-column>
           <el-table-column label="AI解读" width="170" align="center">
             <template #default="{ row }">
               <el-tooltip
@@ -507,17 +567,11 @@ onMounted(() => {
                   <span>{{ aiStrengthStars(strongestSymbol(row.ai_symbols).strength) }}</span>
                 </span>
               </el-tooltip>
-              <el-tooltip
+              <span
                 v-else
-                :content="aiInterpretTooltip(row)"
-                :disabled="!aiInterpretTooltip(row)"
-                placement="top"
-                effect="dark"
-              >
-                <span class="opinion-ai-status">
-                  {{ interpretStatusLabel(row.ai_interpret_status) }}
-                </span>
-              </el-tooltip>
+                class="opinion-interpret-now"
+                @click="triggerInterpret(row)"
+              >立即解读</span>
             </template>
           </el-table-column>
           <el-table-column prop="crawl_count" label="热度" width="90" align="center">
@@ -1327,6 +1381,110 @@ onMounted(() => {
 .opinion-ai-status:hover {
   border-color: rgba(0, 212, 255, 0.32);
   box-shadow: 0 0 16px rgba(0, 212, 255, 0.18);
+}
+
+/* ── 立即解读按钮 ── */
+.opinion-interpret-now {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: calc(var(--opinion-table-font-size) - 2px);
+  color: rgba(56, 189, 248, 0.9);
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.opinion-interpret-now:hover {
+  color: #fff;
+  background: rgba(56, 189, 248, 0.32);
+  border-color: rgba(56, 189, 248, 0.5);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.28);
+}
+
+:global(.theme--light .opinion-interpret-now) {
+  color: #409eff;
+  background: #ecf5ff;
+  border-color: #b3d8ff;
+}
+
+:global(.theme--light .opinion-interpret-now:hover) {
+  color: #fff;
+  background: #409eff;
+  border-color: #409eff;
+}
+
+/* ── 解读状态标签 ── */
+.opinion-status-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: calc(var(--opinion-table-font-size) - 2px);
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.opinion-status-tag--clickable {
+  cursor: pointer;
+}
+
+.opinion-status-tag--clickable:hover {
+  filter: brightness(1.15);
+  transform: scale(1.04);
+}
+
+.opinion-status--pending {
+  color: rgba(184, 216, 248, 0.62);
+  background: rgba(100, 116, 139, 0.16);
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+:global(.theme--light .opinion-status--pending) {
+  color: #909399;
+  background: #f4f4f5;
+  border-color: #dcdfe6;
+}
+
+.opinion-status--running {
+  color: rgba(56, 189, 248, 0.9);
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.28);
+}
+
+:global(.theme--light .opinion-status--running) {
+  color: #409eff;
+  background: #ecf5ff;
+  border-color: #b3d8ff;
+}
+
+.opinion-status--done {
+  color: rgba(74, 222, 128, 0.9);
+  background: rgba(74, 222, 128, 0.1);
+  border-color: rgba(74, 222, 128, 0.24);
+}
+
+:global(.theme--light .opinion-status--done) {
+  color: #67c23a;
+  background: #f0f9eb;
+  border-color: #c2e7b0;
+}
+
+.opinion-status--failed {
+  color: rgba(248, 113, 113, 0.9);
+  background: rgba(248, 113, 113, 0.1);
+  border-color: rgba(248, 113, 113, 0.24);
+}
+
+:global(.theme--light .opinion-status--failed) {
+  color: #f56c6c;
+  background: #fef0f0;
+  border-color: #fab6b6;
 }
 
 :global(.theme--light .opinion-card-thought) {
