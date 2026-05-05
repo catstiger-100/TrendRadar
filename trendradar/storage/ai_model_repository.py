@@ -88,11 +88,27 @@ CREATE TABLE IF NOT EXISTS ai_model_settings (
     reasoning_provider TEXT NOT NULL DEFAULT '',
     reasoning_base_url TEXT NOT NULL DEFAULT '',
     reasoning_api_key TEXT NOT NULL DEFAULT '',
+    auto_interpret_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT ai_model_settings_singleton CHECK (id = 1)
 );
 """
+
+SCHEMA_MIGRATIONS = [
+    # 添加 auto_interpret_enabled 列（如果不存在）
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'ai_model_settings' AND column_name = 'auto_interpret_enabled'
+        ) THEN
+            ALTER TABLE ai_model_settings ADD COLUMN auto_interpret_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+        END IF;
+    END $$;
+    """,
+]
 
 
 def ensure_schema() -> None:
@@ -110,6 +126,8 @@ def ensure_schema() -> None:
             with conn.cursor() as cur:
                 cur.execute("SELECT pg_advisory_xact_lock(%s)", (SCHEMA_LOCK_KEY,))
                 cur.execute(SCHEMA_SQL)
+                for migration_sql in SCHEMA_MIGRATIONS:
+                    cur.execute(migration_sql)
                 cur.execute(
                     """
                     INSERT INTO ai_model_settings (id)
@@ -147,6 +165,7 @@ def get_settings() -> Dict[str, Any]:
                     reasoning_provider,
                     reasoning_base_url,
                     reasoning_api_key,
+                    auto_interpret_enabled,
                     created_at,
                     updated_at
                 FROM ai_model_settings
@@ -180,6 +199,7 @@ def update_settings(payload: Dict[str, Any]) -> Dict[str, Any]:
                     reasoning_provider = %(reasoning_provider)s,
                     reasoning_base_url = %(reasoning_base_url)s,
                     reasoning_api_key = %(reasoning_api_key)s,
+                    auto_interpret_enabled = %(auto_interpret_enabled)s,
                     updated_at = NOW()
                 WHERE id = 1
                 RETURNING
@@ -192,6 +212,7 @@ def update_settings(payload: Dict[str, Any]) -> Dict[str, Any]:
                     reasoning_provider,
                     reasoning_base_url,
                     reasoning_api_key,
+                    auto_interpret_enabled,
                     created_at,
                     updated_at
                 """,
@@ -311,7 +332,14 @@ def _to_litellm_config(provider: str, model_name: str, api_key: str, base_url: s
     }
 
 
-def _normalize_payload(payload: Dict[str, Any]) -> Dict[str, str]:
+def _normalize_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    auto_val = payload.get("auto_interpret_enabled")
+    if isinstance(auto_val, bool):
+        auto_interpret_enabled = auto_val
+    elif isinstance(auto_val, str):
+        auto_interpret_enabled = auto_val.lower() in ("true", "1", "yes")
+    else:
+        auto_interpret_enabled = False
     return {
         "fast_model_name": str(payload.get("fast_model_name", "") or "").strip(),
         "fast_provider": str(payload.get("fast_provider", "") or "").strip(),
@@ -321,6 +349,7 @@ def _normalize_payload(payload: Dict[str, Any]) -> Dict[str, str]:
         "reasoning_provider": str(payload.get("reasoning_provider", "") or "").strip(),
         "reasoning_base_url": str(payload.get("reasoning_base_url", "") or "").strip(),
         "reasoning_api_key": str(payload.get("reasoning_api_key", "") or "").strip(),
+        "auto_interpret_enabled": auto_interpret_enabled,
     }
 
 
@@ -335,6 +364,7 @@ def _row_to_dict(row: Dict[str, Any]) -> Dict[str, Any]:
         "reasoning_provider": row.get("reasoning_provider", "") or "",
         "reasoning_base_url": row.get("reasoning_base_url", "") or "",
         "reasoning_api_key": row.get("reasoning_api_key", "") or "",
+        "auto_interpret_enabled": bool(row.get("auto_interpret_enabled", False)),
         "created_at": row["created_at"].isoformat() if row.get("created_at") else "",
         "updated_at": row["updated_at"].isoformat() if row.get("updated_at") else "",
     }
@@ -351,6 +381,7 @@ def _empty_settings() -> Dict[str, Any]:
         "reasoning_provider": "",
         "reasoning_base_url": "",
         "reasoning_api_key": "",
+        "auto_interpret_enabled": False,
         "created_at": "",
         "updated_at": "",
     }

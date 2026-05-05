@@ -9,10 +9,12 @@ import io
 import json
 import os
 import shutil
+import threading
 import zipfile
 import traceback
 from http import cookies
 from datetime import datetime
+from decimal import Decimal
 from email.parser import BytesParser
 from email.policy import default
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -45,7 +47,13 @@ FREQUENCY_WORDS_PATH = Path(
 BACKUP_DIR = Path(os.environ.get("FREQUENCY_BACKUP_DIR", str(CONFIG_DIR / "backups")))
 ADMIN_HTML_PATH = Path(__file__).resolve().parent / "static" / "admin.html"
 XLSX_NS = {"main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+XLSX_MAIN_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+XLSX_REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 AUTH_COOKIE_NAME = os.environ.get("AUTH_COOKIE_NAME", "trendradar_console_session")
+
+
+ElementTree.register_namespace("", XLSX_MAIN_NS)
+ElementTree.register_namespace("r", XLSX_REL_NS)
 
 
 def _xlsx_column_name(cell_ref):
@@ -58,6 +66,84 @@ def _xlsx_column_index(cell_ref):
     for char in name:
         index = index * 26 + (ord(char.upper()) - ord("A") + 1)
     return index - 1
+
+
+def _xlsx_column_letter(index):
+    index += 1
+    letters = []
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        letters.append(chr(ord("A") + remainder))
+    return "".join(reversed(letters))
+
+
+def _build_xlsx_workbook(sheet_name, rows, column_widths=None):
+    worksheet = ElementTree.Element(f"{{{XLSX_MAIN_NS}}}worksheet")
+    if rows and rows[0]:
+        last_cell = f"{_xlsx_column_letter(len(rows[0]) - 1)}{len(rows)}"
+        ElementTree.SubElement(worksheet, f"{{{XLSX_MAIN_NS}}}dimension", ref=f"A1:{last_cell}")
+
+    if column_widths:
+        cols = ElementTree.SubElement(worksheet, f"{{{XLSX_MAIN_NS}}}cols")
+        for index, width in enumerate(column_widths, start=1):
+            ElementTree.SubElement(
+                cols,
+                f"{{{XLSX_MAIN_NS}}}col",
+                min=str(index),
+                max=str(index),
+                width=str(width),
+                customWidth="1",
+            )
+
+    sheet_data = ElementTree.SubElement(worksheet, f"{{{XLSX_MAIN_NS}}}sheetData")
+    for row_index, values in enumerate(rows, start=1):
+        row_el = ElementTree.SubElement(sheet_data, f"{{{XLSX_MAIN_NS}}}row", r=str(row_index))
+        for column_index, value in enumerate(values):
+            cell_ref = f"{_xlsx_column_letter(column_index)}{row_index}"
+            cell = ElementTree.SubElement(
+                row_el,
+                f"{{{XLSX_MAIN_NS}}}c",
+                r=cell_ref,
+                t="inlineStr",
+            )
+            inline = ElementTree.SubElement(cell, f"{{{XLSX_MAIN_NS}}}is")
+            text = ElementTree.SubElement(inline, f"{{{XLSX_MAIN_NS}}}t")
+            text.text = str(value)
+
+    workbook = ElementTree.Element(f"{{{XLSX_MAIN_NS}}}workbook")
+    sheets = ElementTree.SubElement(workbook, f"{{{XLSX_MAIN_NS}}}sheets")
+    ElementTree.SubElement(
+        sheets,
+        f"{{{XLSX_MAIN_NS}}}sheet",
+        name=sheet_name,
+        sheetId="1",
+        attrib={f"{{{XLSX_REL_NS}}}id": "rId1"},
+    )
+
+    content_types = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+</Types>"""
+    package_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>"""
+    workbook_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>"""
+
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", content_types)
+        archive.writestr("_rels/.rels", package_rels)
+        archive.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
+        archive.writestr("xl/workbook.xml", ElementTree.tostring(workbook, encoding="utf-8", xml_declaration=True))
+        archive.writestr("xl/worksheets/sheet1.xml", ElementTree.tostring(worksheet, encoding="utf-8", xml_declaration=True))
+    return output.getvalue()
 
 
 def _read_xlsx_shared_strings(archive):
@@ -140,6 +226,12 @@ def _xlsx_to_markdown(content):
     return "\n".join(markdown_lines)
 
 
+def _json_serialize(obj):
+    if isinstance(obj, Decimal):
+        return float(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
 class AdminRequestHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         self._extra_headers = []
@@ -169,6 +261,12 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/keywords/backups":
             self._send_backups()
             return
+        if path == "/api/keywords/template/md":
+            self._send_keyword_template_md()
+            return
+        if path == "/api/keywords/template/xlsx":
+            self._send_keyword_template_xlsx()
+            return
         if path == "/api/news":
             self._send_news()
             return
@@ -193,6 +291,9 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/roles":
             self._send_roles()
             return
+        if path == "/api/situation-overview":
+            self._send_situation_overview()
+            return
         if path == "/api/ai-models":
             self._send_ai_models()
             return
@@ -216,6 +317,9 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/keywords/upload":
             self._upload_keywords()
+            return
+        if path == "/api/keywords":
+            self._save_keywords()
             return
         if path == "/api/ai-analysis/reanalyze":
             self._reanalyze_ai()
@@ -328,7 +432,7 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         return True
 
     def _send_json(self, status, payload):
-        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        data = json.dumps(payload, ensure_ascii=False, default=_json_serialize).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
@@ -582,6 +686,83 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
                 )
         self._send_json(200, {"backups": backups})
 
+    def _send_keyword_template_md(self):
+        content = """# 宏观与金融政策
+## 经济数据
+- 核心经济数据: CPI|PPI|GDP|PMI|非农|失业率
+- 央行货币政策: 降息|加息|降准|准备金|利率调整
+
+## 政策法规
+- 行业监管政策: 监管|政策|法规|新规|合规
+
+# 地缘政治与国际贸易
+## 国际关系
+- 中美关系: 中美|贸易战|关税|制裁
+- 地缘冲突: 地缘|冲突|战争|军事|局势
+
+## 贸易动态
+- 进出口贸易: 出口|进口|贸易|订单
+
+# 市场情绪与盘面特征
+## 资金流向
+- 资金动向: 资金|增持|减持|北向|主力
+
+## 市场情绪
+- 情绪指标: 恐慌|乐观|情绪|信心|预期
+"""
+        data = content.encode("utf-8")
+        self._send_file_download("keyword_template.md", data, "text/markdown")
+
+    def _send_keyword_template_xlsx(self):
+        md_content = """# 宏观与金融政策
+## 经济数据
+- 核心经济数据: CPI|PPI|GDP|PMI|非农|失业率
+- 央行货币政策: 降息|加息|降准|准备金|利率调整
+
+## 政策法规
+- 行业监管政策: 监管|政策|法规|新规|合规
+
+# 地缘政治与国际贸易
+## 国际关系
+- 中美关系: 中美|贸易战|关税|制裁
+- 地缘冲突: 地缘|冲突|战争|军事|局势
+
+## 贸易动态
+- 进出口贸易: 出口|进口|贸易|订单
+"""
+        # 将标记转换为 xlsx 所需的 rows
+        rows = []
+        current_module = ""
+        current_category = ""
+        for line in md_content.strip().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("# "):
+                current_module = line[2:]
+            elif line.startswith("## "):
+                current_category = line[3:]
+            elif line.startswith("- "):
+                parts = line[2:].split(":", 1)
+                title = parts[0].strip()
+                keywords = parts[1].strip() if len(parts) > 1 else ""
+                rows.append([current_module, current_category, title, keywords])
+
+        data = _build_xlsx_workbook(
+            "关键词",
+            [["模块", "分类", "标题", "关键词"], *rows],
+            column_widths=[22, 16, 20, 36],
+        )
+        self._send_file_download("keyword_template.xlsx", data, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    def _send_file_download(self, filename, data, mime_type):
+        self.send_response(200)
+        self.send_header("Content-Type", mime_type)
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def _read_upload_file(self):
         content_type = self.headers.get("Content-Type")
         if not content_type:
@@ -823,6 +1004,40 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         shutil.copy2(FREQUENCY_WORDS_PATH, backup_path)
         return backup_path
 
+    def _save_keywords(self):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            payload = self._read_json_body()
+            content = str(payload.get("content", "") or "")
+            if not content.strip():
+                raise ValueError("关键词内容不能为空")
+
+            FREQUENCY_WORDS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            backup_path = self._backup_frequency_file()
+            FREQUENCY_WORDS_PATH.write_text(content, encoding="utf-8")
+
+            modules = parse_frequency_words_for_display(content)
+            self._send_json(
+                200,
+                {
+                    "message": "关键词已保存",
+                    "backup": backup_path.name if backup_path else None,
+                    "modules": modules,
+                    "updated_at": datetime.now().isoformat(timespec="seconds"),
+                },
+            )
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except PermissionError:
+            self._send_json(
+                500,
+                {"error": "无法写入 frequency_words.txt，请确认 config 目录可写"},
+            )
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
     def _upload_keywords(self):
         try:
             filename, content = self._read_upload_file()
@@ -908,6 +1123,35 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
             return
         try:
             self._send_json(200, {"items": auth_repository.list_roles()})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _send_situation_overview(self):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            from trendradar.storage.news_repository import (
+                get_latest_articles,
+                get_situation_stats,
+                get_situation_symbol_stats,
+            )
+            from trendradar.ai.situation_analyzer import get_latest_analysis
+
+            stats = get_situation_stats()
+            symbol_stats = get_situation_symbol_stats()
+            articles = get_latest_articles(limit=40)
+            analysis = get_latest_analysis()
+
+            self._send_json(
+                200,
+                {
+                    "stats": stats,
+                    "symbol_stats": symbol_stats,
+                    "articles": articles,
+                    "analysis": analysis,
+                },
+            )
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 
@@ -1146,6 +1390,31 @@ def run(host="0.0.0.0", port=8080):
             print(f"AI 新闻解读启动补跑任务: {pending} 条")
     except Exception as exc:
         print(f"AI 新闻解读补跑任务启动失败: {exc}")
+
+    # 启动态势解读定时线程（每小时一次）
+    def _situation_analysis_loop():
+        import time as _time
+        # 首次启动延迟 30 秒，等待服务就绪
+        _time.sleep(30)
+        while True:
+            try:
+                from trendradar.ai.situation_analyzer import run_situation_analysis
+                result = run_situation_analysis()
+                if result.get("success"):
+                    print(f"态势解读完成：{result.get('total_articles', 0)} 条新闻")
+                else:
+                    print(f"态势解读跳过：{result.get('error', '未知错误')}")
+            except Exception as exc:
+                print(f"态势解读执行失败: {exc}")
+            _time.sleep(3600)
+
+    sit_thread = threading.Thread(
+        target=_situation_analysis_loop,
+        name="situation-analyzer",
+        daemon=True,
+    )
+    sit_thread.start()
+
     server = ThreadingHTTPServer((host, port), AdminRequestHandler)
     print(f"TrendRadar 管理服务已启动: http://{host}:{port}")
     print(f"报告目录: {OUTPUT_DIR}")

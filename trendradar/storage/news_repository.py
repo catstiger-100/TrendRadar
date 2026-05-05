@@ -715,3 +715,186 @@ def get_article_ai_symbols_map(article_ids: List[int]) -> Dict[int, List[Dict[st
         return {}
     finally:
         _put_conn(conn)
+
+
+def get_situation_stats() -> Dict[str, Any]:
+    """返回 24 小时内新闻态势统计数据。"""
+    conn = _get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # 总数 + 解读状态分布
+            cur.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_articles,
+                    COUNT(*) FILTER (WHERE ai_interpret_status = '已解读') AS interpreted_count,
+                    COUNT(*) FILTER (WHERE ai_interpret_status = '待解读') AS pending_count,
+                    COUNT(*) FILTER (WHERE ai_interpret_status = '解读中') AS running_count,
+                    COUNT(*) FILTER (WHERE ai_interpret_status = '解读失败') AS failed_count
+                FROM news_articles
+                WHERE created_at > NOW() - INTERVAL '24 hours'
+                """
+            )
+            overview = dict(cur.fetchone() or {})
+
+            # 各来源文章数
+            cur.execute(
+                """
+                SELECT source_name, COUNT(*) AS count
+                FROM news_articles
+                WHERE created_at > NOW() - INTERVAL '24 hours'
+                  AND source_name IS NOT NULL AND source_name != ''
+                GROUP BY source_name
+                ORDER BY count DESC
+                """
+            )
+            source_stats = [dict(row) for row in cur.fetchall()]
+
+            # 各小时文章数（最近 24 小时，按 Asia/Shanghai 时间）
+            cur.execute(
+                """
+                SELECT
+                    EXTRACT(HOUR FROM created_at)::int AS hour,
+                    COUNT(*) AS count
+                FROM news_articles
+                WHERE created_at > NOW() - INTERVAL '24 hours'
+                GROUP BY EXTRACT(HOUR FROM created_at)
+                ORDER BY hour
+                """
+            )
+            hourly_stats = [dict(row) for row in cur.fetchall()]
+
+        return {
+            "overview": overview,
+            "source_stats": source_stats,
+            "hourly_stats": hourly_stats,
+        }
+    except Exception:
+        conn.rollback()
+        return {"overview": {}, "source_stats": [], "hourly_stats": []}
+    finally:
+        _put_conn(conn)
+
+
+def get_situation_symbol_stats() -> Dict[str, Any]:
+    """返回 24 小时内品种多空统计。"""
+    conn = _get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # 多空分布
+            cur.execute(
+                """
+                SELECT
+                    s.direction,
+                    COUNT(*) AS count
+                FROM news_article_ai_symbols s
+                JOIN news_articles a ON a.id = s.article_id
+                WHERE a.created_at > NOW() - INTERVAL '24 hours'
+                GROUP BY s.direction
+                ORDER BY count DESC
+                """
+            )
+            direction_stats = [dict(row) for row in cur.fetchall()]
+
+            # Top 15 热门品种（按提及次数）
+            cur.execute(
+                """
+                SELECT
+                    s.symbol_name,
+                    s.symbol_code,
+                    COUNT(*) AS mention_count,
+                    AVG(s.strength)::numeric(3,1) AS avg_strength
+                FROM news_article_ai_symbols s
+                JOIN news_articles a ON a.id = s.article_id
+                WHERE a.created_at > NOW() - INTERVAL '24 hours'
+                GROUP BY s.symbol_name, s.symbol_code
+                ORDER BY mention_count DESC
+                LIMIT 15
+                """
+            )
+            top_symbols = [dict(row) for row in cur.fetchall()]
+
+        return {
+            "direction_stats": direction_stats,
+            "top_symbols": top_symbols,
+        }
+    except Exception:
+        conn.rollback()
+        return {"direction_stats": [], "top_symbols": []}
+    finally:
+        _put_conn(conn)
+
+
+def get_latest_articles(limit: int = 40) -> List[Dict[str, Any]]:
+    """返回 24 小时内最新文章列表。"""
+    conn = _get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT id, title, source_name, source_url, published_at, created_at,
+                       ai_interpret_status, ai_one_line_summary
+                FROM news_articles
+                WHERE created_at > NOW() - INTERVAL '24 hours'
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                (int(limit),),
+            )
+            rows = cur.fetchall()
+        result = []
+        for row in rows:
+            result.append({
+                "id": row["id"],
+                "title": row.get("title", "") or "",
+                "source_name": row.get("source_name", "") or "",
+                "source_url": row.get("source_url", "") or "",
+                "published_at": row["published_at"].isoformat() if row.get("published_at") else "",
+                "created_at": row["created_at"].isoformat() if row.get("created_at") else "",
+                "ai_interpret_status": row.get("ai_interpret_status", "") or "",
+                "ai_one_line_summary": row.get("ai_one_line_summary", "") or "",
+            })
+        return result
+    except Exception:
+        conn.rollback()
+        return []
+    finally:
+        _put_conn(conn)
+
+
+def get_articles_for_situation_analysis(limit: int = 80) -> List[Dict[str, Any]]:
+    """返回用于 AI 态势解读的新闻数据（含解读结果）。"""
+    conn = _get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT id, title, source_name, published_at, summary, content,
+                       ai_interpret_status, ai_one_line_summary, keywords
+                FROM news_articles
+                WHERE created_at > NOW() - INTERVAL '24 hours'
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                (int(limit),),
+            )
+            rows = cur.fetchall()
+        result = []
+        for row in rows:
+            result.append({
+                "id": row["id"],
+                "title": row.get("title", "") or "",
+                "source_name": row.get("source_name", "") or "",
+                "published_at": row["published_at"].isoformat() if row.get("published_at") else "",
+                "summary": row.get("summary", "") or "",
+                "content": row.get("content", "") or "",
+                "ai_interpret_status": row.get("ai_interpret_status", "") or "",
+                "ai_one_line_summary": row.get("ai_one_line_summary", "") or "",
+                "keywords": list(row.get("keywords") or []),
+            })
+        return result
+    except Exception:
+        conn.rollback()
+        return []
+    finally:
+        _put_conn(conn)

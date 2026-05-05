@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { Search, RefreshRight, Share } from "@element-plus/icons-vue";
+import { Search, RefreshRight, Share, Loading } from "@element-plus/icons-vue";
 import QRCode from "qrcode";
 import ConsoleLayout from "../layout/ConsoleLayout.vue";
 import {
@@ -545,6 +545,7 @@ onMounted(() => {
                 :class="[interpretStatusClass(row.ai_interpret_status), { 'opinion-status-tag--clickable': row.ai_interpret_status !== '已解读' && row.ai_interpret_status !== '解读中' }]"
                 @click="triggerInterpret(row)"
               >
+                <el-icon v-if="row.ai_interpret_status === '解读中'" class="is-loading opinion-status-spinner"><Loading /></el-icon>
                 {{ interpretStatusLabel(row.ai_interpret_status) }}
               </span>
             </template>
@@ -623,7 +624,15 @@ onMounted(() => {
                 <span class="opinion-card-pill source">{{ row.source_name || "-" }}</span>
                 <span class="opinion-card-pill time">{{ formatTime(row.published_at) }}</span>
                 <span class="opinion-card-pill freq">{{ row.crawl_count || 1 }}次</span>
-                <span class="opinion-card-pill opinion-card-ai-status">
+                <span
+                  class="opinion-card-pill opinion-card-ai-status"
+                  :class="{
+                    'opinion-card-ai-status--done': row.ai_interpret_status === '已解读',
+                    'opinion-card-ai-status--clickable': row.ai_interpret_status !== '已解读' && row.ai_interpret_status !== '解读中',
+                  }"
+                  @click="triggerInterpret(row)"
+                >
+                  <el-icon v-if="row.ai_interpret_status === '解读中'" class="is-loading opinion-status-spinner"><Loading /></el-icon>
                   {{ interpretStatusLabel(row.ai_interpret_status) }}
                 </span>
                 <button
@@ -676,9 +685,8 @@ onMounted(() => {
                   target="_blank"
                   rel="noreferrer"
                   class="opinion-card-link"
-                >
-                  {{ row.title }}
-                </a>
+                  v-html="highlight(row.title, highlightKeyword)"
+                ></a>
               </div>
 
               <p v-if="row.summary" class="opinion-card-summary">
@@ -1082,7 +1090,8 @@ onMounted(() => {
   flex: 1;
   min-height: 0;
   padding: 16px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .opinion-card-wrap {
@@ -1377,6 +1386,24 @@ onMounted(() => {
   cursor: help;
 }
 
+.opinion-card-ai-status--clickable {
+  cursor: pointer;
+}
+
+.opinion-card-ai-status--clickable:hover {
+  color: #e7faff;
+  border-color: rgba(56, 189, 248, 0.45);
+  background: rgba(56, 189, 248, 0.14);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.2);
+}
+
+:global(.theme--light .opinion-card-ai-status--clickable:hover) {
+  color: #409eff;
+  border-color: #409eff;
+  background: #ecf5ff;
+  box-shadow: none;
+}
+
 .opinion-card-ai-status--done:hover,
 .opinion-ai-status:hover {
   border-color: rgba(0, 212, 255, 0.32);
@@ -1449,6 +1476,11 @@ onMounted(() => {
   color: #909399;
   background: #f4f4f5;
   border-color: #dcdfe6;
+}
+
+.opinion-status-spinner {
+  font-size: inherit;
+  margin-right: 3px;
 }
 
 .opinion-status--running {
@@ -1739,7 +1771,20 @@ onMounted(() => {
   font-weight: 600;
 }
 
+.opinion-card-link :deep(.opinion-highlight) {
+  color: #ffd54f;
+  background: rgba(255, 213, 79, 0.16);
+  border-radius: 3px;
+  padding: 0 2px;
+  font-weight: 600;
+}
+
 :global(.theme--light .opinion-title .opinion-highlight) {
+  color: #e6a23c;
+  background: #fdf6ec;
+}
+
+:global(.theme--light .opinion-card-link .opinion-highlight) {
   color: #e6a23c;
   background: #fdf6ec;
 }
@@ -1821,12 +1866,14 @@ onMounted(() => {
 }
 
 /* ── Loading ── */
-.opinion-table :deep(.el-loading-mask) {
+.opinion-table :deep(.el-loading-mask),
+.opinion-card-board :deep(.el-loading-mask) {
   background: rgba(5, 10, 26, 0.6);
   backdrop-filter: blur(2px);
 }
 
-:global(.theme--light .opinion-table .el-loading-mask) {
+:global(.theme--light .opinion-table .el-loading-mask),
+:global(.theme--light .opinion-card-board .el-loading-mask) {
   background: rgba(255, 255, 255, 0.75);
   backdrop-filter: none;
 }

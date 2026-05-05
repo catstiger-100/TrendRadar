@@ -7,6 +7,7 @@ import AiModelsView from "./views/system/AiModelsView.vue";
 import FuturesSymbolsView from "./views/system/FuturesSymbolsView.vue";
 import RolesView from "./views/system/RolesView.vue";
 import UsersView from "./views/system/UsersView.vue";
+import KeywordsView from "./views/system/KeywordsView.vue";
 import { useSessionStore } from "./stores/session";
 
 const routes = [
@@ -57,6 +58,12 @@ const routes = [
     name: "users",
     component: UsersView,
     meta: { title: "用户管理" },
+  },
+  {
+    path: "/keywords",
+    name: "keywords",
+    component: KeywordsView,
+    meta: { title: "关键词管理" },
   },
 ];
 

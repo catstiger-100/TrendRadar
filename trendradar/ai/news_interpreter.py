@@ -123,6 +123,9 @@ USER_PROMPT_TEMPLATE = """
 
 
 def enqueue_article_interpretation(article_ids: List[int]) -> None:
+    if not _is_auto_interpret_enabled():
+        logger.info("AI 新闻解读自动入队已跳过: 自动解读开关未开启")
+        return
     _ensure_worker_started()
     queued = 0
     with _queue_lock:
@@ -247,6 +250,9 @@ def interpret_article_now(article_id: int) -> Dict[str, Any]:
 
 
 def enqueue_pending_interpretations(limit: int = 50) -> int:
+    if not _is_auto_interpret_enabled():
+        logger.info("AI 新闻解读补跑任务已跳过: 自动解读开关未开启")
+        return 0
     article_ids = news_repository.get_pending_ai_interpretation_article_ids(limit=limit)
     enqueue_article_interpretation(article_ids)
     return len(article_ids)
@@ -326,3 +332,12 @@ def _normalize_symbol_matches(raw_symbols: Any, all_symbols: List[Dict[str, Any]
             normalized.append(item)
     normalized.sort(key=lambda item: (-item["strength"], item["symbol_code"]))
     return normalized
+
+
+def _is_auto_interpret_enabled() -> bool:
+    try:
+        from trendradar.storage import ai_model_repository
+        settings = ai_model_repository.get_settings()
+        return bool(settings.get("auto_interpret_enabled", False))
+    except Exception:
+        return False

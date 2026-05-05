@@ -19,6 +19,7 @@ const form = reactive({
   reasoning_model_name: "",
   reasoning_base_url: "",
   reasoning_api_key: "",
+  auto_interpret_enabled: false,
 });
 
 const providerOptions = computed(() => Object.keys(providerPresets.value || {}));
@@ -96,6 +97,14 @@ loadData();
         <el-button type="primary" :loading="saving" @click="saveSettings">保存配置</el-button>
       </div>
 
+      <div class="auto-interpret-bar">
+        <div class="auto-interpret-bar__info">
+          <span class="auto-interpret-bar__label">自动解读</span>
+          <span class="auto-interpret-bar__hint">开启后，新入库的新闻将自动排队等待 AI 解读；关闭后仅可在舆情纵览中手动触发解读。</span>
+        </div>
+        <el-switch v-model="form.auto_interpret_enabled" />
+      </div>
+
       <div class="ai-model-grid">
         <section class="ai-model-card">
           <div class="ai-model-card__header">
@@ -166,6 +175,36 @@ loadData();
 </template>
 
 <style scoped>
+.auto-interpret-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  border-radius: 12px;
+  border: 1px solid var(--console-line);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.auto-interpret-bar__info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.auto-interpret-bar__label {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--console-text);
+}
+
+.auto-interpret-bar__hint {
+  font-size: 13px;
+  color: var(--console-muted);
+  line-height: 1.6;
+}
+
 .ai-model-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
