@@ -9,8 +9,12 @@ TrendRadar 主程序
 import argparse
 import os
 import re
+import signal
+import traceback
+import sys
+import time
 import webbrowser
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
@@ -1810,22 +1814,34 @@ class NewsAnalyzer:
     def run(self) -> None:
         """执行分析流程"""
         try:
+            t_start = time.time()
+            print(f"[抓取] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} 开始执行抓取流程")
+
             self._initialize_and_check_config()
 
             mode_strategy = self._get_mode_strategy()
 
             # 抓取热榜数据
+            t0 = time.time()
             results, id_to_name, failed_ids = self._crawl_data()
+            print(f"[抓取] 热榜抓取完成，平台数={len(results)}，失败={len(failed_ids)}，耗时 {time.time()-t0:.1f}s")
 
             # 抓取 RSS 数据（如果启用），返回统计条目、新增条目和原始条目
+            t0 = time.time()
             rss_items, rss_new_items, raw_rss_items = self._crawl_rss_data()
+            if rss_items is not None:
+                print(f"[抓取] RSS 抓取完成，条目数={len(rss_items)}，耗时 {time.time()-t0:.1f}s")
 
             # 执行模式策略，传递 RSS 数据用于合并推送
+            t0 = time.time()
             self._execute_mode_strategy(
                 mode_strategy, results, id_to_name, failed_ids,
                 rss_items=rss_items, rss_new_items=rss_new_items,
                 raw_rss_items=raw_rss_items
             )
+            print(f"[抓取] 分析与推送完成，耗时 {time.time()-t0:.1f}s")
+
+            print(f"[抓取] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} 本轮抓取总耗时 {time.time()-t_start:.1f}s")
 
         except Exception as e:
             print(f"分析流程执行出错: {e}")
@@ -1834,6 +1850,88 @@ class NewsAnalyzer:
         finally:
             # 清理资源（包括过期数据清理和数据库连接关闭）
             self.ctx.cleanup()
+
+
+def _parse_cron_interval(cron_expr: str) -> int:
+    """从 cron 表达式解析间隔分钟数，无法解析时返回 0"""
+    try:
+        parts = cron_expr.strip().split()
+        if len(parts) != 5:
+            return 0
+        minute = parts[0]
+        if minute.startswith("*/"):
+            return int(minute[2:])
+        if minute == "*":
+            hour = parts[1]
+            if hour.startswith("*/"):
+                return int(hour[2:]) * 60
+        return 0
+    except Exception:
+        return 0
+
+
+def _get_crawl_interval(config: Dict) -> int:
+    """获取抓取间隔（分钟），优先使用配置值，否则从 CRON_SCHEDULE 解析，默认为 30"""
+    interval = int(config.get("CRAWL_INTERVAL_MINUTES", 0) or 0)
+    if interval > 0:
+        return interval
+    cron = os.environ.get("CRON_SCHEDULE", "")
+    if cron:
+        parsed = _parse_cron_interval(cron)
+        if parsed > 0:
+            return parsed
+    return 30
+
+
+def _run_daemon(initial_config: Dict):
+    """守护进程模式：循环抓取，每次重新读取配置以支持即时生效"""
+    interval = _get_crawl_interval(initial_config)
+    print(f"[Daemon] TrendRadar 守护进程启动，抓取间隔: {interval} 分钟")
+    print(f"[Daemon] 配置热加载已启用，修改 config.yaml 后将在下一轮生效")
+
+    running = True
+
+    def _handle_signal(signum, frame):
+        nonlocal running
+        print(f"\n[Daemon] 收到信号 {signum}，正在优雅退出...")
+        running = False
+
+    signal.signal(signal.SIGTERM, _handle_signal)
+    signal.signal(signal.SIGINT, _handle_signal)
+
+    while running:
+        start_time = time.time()
+        cycle = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"\n{'='*60}")
+        print(f"[Daemon] 开始抓取周期 {cycle}")
+        print(f"{'='*60}")
+
+        try:
+            config = load_config()
+            new_interval = _get_crawl_interval(config)
+            if new_interval != interval:
+                print(f"[Daemon] 检测到频率变更: {interval} → {new_interval} 分钟")
+                interval = new_interval
+
+            analyzer = NewsAnalyzer(config=config)
+            analyzer.run()
+        except Exception as e:
+            print(f"[Daemon] 抓取周期出错: {e}")
+            if config.get("DEBUG", False):
+                traceback.print_exc()
+
+        elapsed = time.time() - start_time
+        sleep_seconds = max(0, interval * 60 - elapsed)
+        if running and sleep_seconds > 0:
+            next_run = datetime.now() + timedelta(seconds=sleep_seconds)
+            print(f"[Daemon] 本轮耗时 {elapsed:.1f}s，下次抓取: {next_run.strftime('%H:%M:%S')} ({sleep_seconds/60:.1f} 分钟后)")
+            # 分段 sleep 以支持快速响应退出信号
+            while sleep_seconds > 0 and running:
+                chunk = min(10, sleep_seconds)
+                time.sleep(chunk)
+                sleep_seconds -= chunk
+
+    print("[Daemon] 守护进程已退出")
 
 
 def main():
@@ -1856,6 +1954,11 @@ def main():
         action="store_true",
         help="显示当前调度状态"
     )
+    parser.add_argument(
+        "--daemon",
+        action="store_true",
+        help="以守护进程模式运行，按配置的间隔循环抓取"
+    )
 
     args = parser.parse_args()
 
@@ -1867,6 +1970,10 @@ def main():
         # 处理状态查看命令
         if args.show_schedule:
             _handle_status_commands(config, args)
+            return
+
+        if args.daemon:
+            _run_daemon(config)
             return
 
         version_url = config.get("VERSION_CHECK_URL", "")

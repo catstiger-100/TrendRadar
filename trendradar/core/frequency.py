@@ -245,6 +245,20 @@ def _parse_word(word: str) -> Dict:
             print(f"Warning: Invalid regex pattern '/{pattern_str}/': {e}")
             pass
 
+    # 兼容维护端保存的简写格式：关键词1|关键词2 => 显示名。
+    # 这类行没有 /.../ 包裹，但语义仍然是“任一关键词命中”。
+    if "|" in word_config:
+        try:
+            pattern = re.compile(word_config, re.IGNORECASE)
+            return {
+                "word": word_config,
+                "is_regex": True,
+                "pattern": pattern,
+                "display_name": display_name,
+            }
+        except re.error as e:
+            print(f"Warning: Invalid regex pattern '{word_config}': {e}")
+
     return {
         "word": word_config, 
         "is_regex": False, 

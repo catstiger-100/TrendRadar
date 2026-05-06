@@ -8,8 +8,10 @@ TrendRadar 管理 Web 服务。
 import io
 import json
 import os
+import re
 import shutil
 import threading
+import yaml
 import zipfile
 import traceback
 from http import cookies
@@ -320,6 +322,9 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/users":
             self._send_users()
             return
+        if path == "/api/system-config":
+            self._send_system_config()
+            return
         super().do_GET()
 
     def translate_path(self, path):
@@ -373,6 +378,9 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
             return
         if path == "/api/users":
             self._create_user()
+            return
+        if path == "/api/system-config":
+            self._update_system_config()
             return
         self.send_error(404, "Not Found")
 
@@ -1408,6 +1416,73 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 
+
+    def _send_system_config(self):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            config_path = CONFIG_DIR / "config.yaml"
+            interval = 0
+            if config_path.exists():
+                with open(config_path, "r", encoding="utf-8") as f:
+                    config = yaml.safe_load(f)
+                interval = (
+                    config.get("advanced", {})
+                    .get("crawler", {})
+                    .get("crawl_interval_minutes", 0)
+                ) or 0
+            self._send_json(
+                200,
+                {
+                    "crawl_interval_minutes": int(interval),
+                    "cron_schedule": os.environ.get("CRON_SCHEDULE", "*/30 * * * *"),
+                    "available_intervals": [1, 3, 5, 10, 15, 30],
+                },
+            )
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _update_system_config(self):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            payload = self._read_json_body()
+            interval = int(payload.get("crawl_interval_minutes", 0))
+            if interval not in (0, 1, 3, 5, 10, 15, 30):
+                raise ValueError("抓取频率必须是 0/1/3/5/10/15/30 之一")
+
+            config_path = CONFIG_DIR / "config.yaml"
+            if not config_path.exists():
+                raise RuntimeError("config.yaml 不存在")
+
+            content = config_path.read_text(encoding="utf-8")
+            if "crawl_interval_minutes" in content:
+                content = re.sub(
+                    r"crawl_interval_minutes:\s*\d+",
+                    f"crawl_interval_minutes: {interval}",
+                    content,
+                )
+            else:
+                content = re.sub(
+                    r"(default_proxy:\s*\"[^\"]*\")\n",
+                    f"\\1\n    crawl_interval_minutes: {interval}",
+                    content,
+                )
+            config_path.write_text(content, encoding="utf-8")
+
+            self._send_json(
+                200,
+                {
+                    "crawl_interval_minutes": interval,
+                    "message": f"抓取频率已更新为 {interval} 分钟" if interval > 0 else "已切换为外部 cron 频率",
+                },
+            )
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
 
 def run(host="0.0.0.0", port=8080):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

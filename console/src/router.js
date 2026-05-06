@@ -8,6 +8,7 @@ import FuturesSymbolsView from "./views/system/FuturesSymbolsView.vue";
 import RolesView from "./views/system/RolesView.vue";
 import UsersView from "./views/system/UsersView.vue";
 import KeywordsView from "./views/system/KeywordsView.vue";
+import SystemConfigView from "./views/system/SystemConfigView.vue";
 import { useSessionStore } from "./stores/session";
 
 const routes = [
@@ -64,6 +65,12 @@ const routes = [
     name: "keywords",
     component: KeywordsView,
     meta: { title: "关键词管理" },
+  },
+  {
+    path: "/system-config",
+    name: "system-config",
+    component: SystemConfigView,
+    meta: { title: "系统设置" },
   },
 ];
 

@@ -486,7 +486,7 @@ def render_screen_content(
 
     payload_json = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
     inject_script = f"<script>globalThis.__TRENDRADAR_SCREEN__ = {payload_json};</script>\n  <script>"
-    template = template.replace("<script>\n    const { createApp", inject_script + "\n    const { createApp", 1)
+    template = template.replace("<script>\n    if (typeof Vue", inject_script + "\n    if (typeof Vue", 1)
 
     template = re.sub(
         r"const CATEGORY_COUNTS = \[[\s\S]*?globalThis\.adaptDashboardData = adaptDashboardData",

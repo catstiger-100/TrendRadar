@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, nextTick, watch } from "vue";
+import { ref, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { Search, RefreshRight, Share, Loading } from "@element-plus/icons-vue";
 import QRCode from "qrcode";
@@ -13,6 +13,7 @@ import {
   interpretArticle,
   fetchKeywordList,
 } from "../api/news";
+import { fetchSystemConfig } from "../api/system";
 
 const items = ref([]);
 const total = ref(0);
@@ -27,6 +28,35 @@ const keywordOptions = ref([]);
 
 const highlightKeyword = ref("");
 const now = ref(Date.now());
+
+const crawlIntervalMinutes = ref(3);
+const cycleStartTime = ref(Date.now());
+const countdownDisplay = ref("");
+let countdownTimer = null;
+
+function startCountdown() {
+  if (countdownTimer) clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    const elapsed = (Date.now() - cycleStartTime.value) / 1000;
+    const remaining = Math.max(0, crawlIntervalMinutes.value * 60 - elapsed);
+    const mm = Math.floor(remaining / 60);
+    const ss = Math.floor(remaining % 60);
+    countdownDisplay.value = `下次刷新：${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+    if (remaining <= 0) {
+      cycleStartTime.value = Date.now();
+      loadNews();
+    }
+  }, 1000);
+}
+
+async function loadCrawlInterval() {
+  try {
+    const data = await fetchSystemConfig();
+    crawlIntervalMinutes.value = data.crawl_interval_minutes || 3;
+  } catch {
+    // 获取失败使用默认值
+  }
+}
 
 const TABLE_FONT_STORAGE_KEY = "trendradar:opinion-table-font-size";
 const LAYOUT_MODE_STORAGE_KEY = "trendradar:opinion-layout-mode";
@@ -532,14 +562,23 @@ async function submitShare() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   loadTableFontSize();
   loadLayoutMode();
   loadColumnWidths();
   loadSources();
   loadKeywordOptions();
+  await loadCrawlInterval();
+  startCountdown();
   loadNews();
   setupResizeHandles();
+});
+
+onBeforeUnmount(() => {
+  if (countdownTimer) {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
+  }
 });
 </script>
 
@@ -658,10 +697,13 @@ onMounted(() => {
               </el-button>
             </div>
           </div>
+          <span class="opinion-countdown">{{ countdownDisplay }}</span>
           <el-button
-            :icon="RefreshRight"
+            :icon="loading ? Loading : RefreshRight"
             circle
             class="opinion-refresh"
+            :class="{ 'is-spinning': loading }"
+            :disabled="loading"
             @click="onClear"
             title="重置筛选"
           />
@@ -1183,10 +1225,26 @@ onMounted(() => {
   text-shadow: none;
 }
 
+.opinion-countdown {
+  font-family: var(--console-mono);
+  font-size: 12px;
+  color: var(--console-muted);
+  white-space: nowrap;
+}
+
 .opinion-refresh {
   --el-button-bg-color: rgba(0, 212, 255, 0.08);
   --el-button-border-color: rgba(0, 212, 255, 0.18);
   --el-button-text-color: var(--console-text-soft);
+}
+
+.opinion-refresh.is-spinning {
+  animation: opinion-spin 1.2s linear infinite;
+}
+
+@keyframes opinion-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 :global(.theme--light .opinion-refresh) {

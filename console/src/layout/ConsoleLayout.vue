@@ -2,7 +2,7 @@
 import { computed, ref, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { ArrowDown, CollectionTag, Cpu, Expand, Fold, House, List, Lock, Menu, Moon, Search, Setting, Sunny, User, UserFilled } from "@element-plus/icons-vue";
+import { ArrowDown, CollectionTag, Cpu, Expand, Fold, House, List, Lock, Menu, Moon, Search, Setting, Sunny, Tools, User, UserFilled } from "@element-plus/icons-vue";
 import { useSessionStore } from "../stores/session";
 
 const props = defineProps({
@@ -29,8 +29,9 @@ const settingsItems = [
   { key: "ai-models", label: "AI模型管理", icon: Cpu, route: "/ai-models" },
   { key: "futures-symbols", label: "期货品种", icon: CollectionTag, route: "/futures-symbols" },
   { key: "keywords", label: "关键词管理", icon: Search, route: "/keywords" },
-  { key: "roles", label: "角色管理", icon: Setting, route: "/roles" },
+  { key: "roles", label: "角色管理", icon: User, route: "/roles" },
   { key: "users", label: "用户管理", icon: UserFilled, route: "/users" },
+  { key: "system-config", label: "系统设置", icon: Tools, route: "/system-config" },
 ];
 
 const sidebarWidth = computed(() => {
@@ -234,7 +235,7 @@ onBeforeUnmount(() => {
           >
             <el-icon><Setting /></el-icon>
             <span class="console-nav__label" :class="{ 'is-hidden': settingsLabelHidden }">
-              系统设置
+              系统
             </span>
             <span
               v-if="!settingsLabelHidden"

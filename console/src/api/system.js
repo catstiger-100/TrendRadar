@@ -89,3 +89,14 @@ export function deleteFuturesSymbol(id) {
     method: "DELETE",
   });
 }
+
+export function fetchSystemConfig() {
+  return request("/api/system-config");
+}
+
+export function updateSystemConfig(payload) {
+  return request("/api/system-config", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
