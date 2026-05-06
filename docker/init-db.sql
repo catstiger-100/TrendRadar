@@ -369,6 +369,25 @@ CREATE TABLE IF NOT EXISTS news_article_shares (
     UNIQUE (article_id, user_id)
 );
 
+-- ============================================
+-- 用户常用关键词表
+-- 对应"舆情纵览 -> 关键词选择"功能
+-- 说明：
+-- - user_id + keyword 唯一
+-- - 每次使用关键词搜索时 UPSERT 并递增 usage_count
+-- ============================================
+CREATE TABLE IF NOT EXISTS user_keywords (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
+    keyword TEXT NOT NULL,
+    usage_count INTEGER NOT NULL DEFAULT 1,
+    last_used_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (user_id, keyword)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_keywords_user_id
+    ON user_keywords (user_id, usage_count DESC);
+
 -- 长标题会超过 PostgreSQL btree 单行索引限制，改用显式 md5 列去重
 DROP INDEX IF EXISTS idx_news_articles_title;
 DROP INDEX IF EXISTS idx_news_articles_title_md5_expr;
@@ -650,7 +669,7 @@ CREATE INDEX IF NOT EXISTS idx_news_article_ai_symbols_article_id
 CREATE INDEX IF NOT EXISTS idx_news_article_ai_symbols_strength
     ON news_article_ai_symbols (article_id, strength DESC);
 
--- 迁移：分享表补建（适用于旧环境升级到带“新闻分享”功能的版本）
+-- 迁移：分享表补建（适用于旧环境升级到带”新闻分享”功能的版本）
 CREATE TABLE IF NOT EXISTS news_article_shares (
     id SERIAL PRIMARY KEY,
     article_id INTEGER NOT NULL REFERENCES news_articles(id) ON DELETE CASCADE,
@@ -672,3 +691,16 @@ CREATE INDEX IF NOT EXISTS idx_news_shares_user_id
 
 CREATE INDEX IF NOT EXISTS idx_news_shares_share_token
     ON news_article_shares (share_token);
+
+-- 迁移：用户常用关键词表补建
+CREATE TABLE IF NOT EXISTS user_keywords (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
+    keyword TEXT NOT NULL,
+    usage_count INTEGER NOT NULL DEFAULT 1,
+    last_used_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (user_id, keyword)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_keywords_user_id
+    ON user_keywords (user_id, usage_count DESC);

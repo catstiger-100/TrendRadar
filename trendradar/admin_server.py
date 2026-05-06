@@ -35,6 +35,7 @@ from trendradar.storage import ai_model_repository
 from trendradar.storage import futures_symbol_repository
 from trendradar.storage import news_favorite_repository
 from trendradar.storage import news_share_repository
+from trendradar.storage import user_keyword_repository
 from trendradar.storage.news_repository import ensure_news_article_columns
 
 
@@ -230,6 +231,22 @@ def _json_serialize(obj):
     if isinstance(obj, Decimal):
         return float(obj)
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+def _extract_system_keywords():
+    """从 frequency_words.txt 中提取所有系统关键词（去重）。"""
+    if not FREQUENCY_WORDS_PATH.exists():
+        return []
+    content = FREQUENCY_WORDS_PATH.read_text(encoding="utf-8")
+    modules = parse_frequency_words_for_display(content)
+    keywords = []
+    for module in modules:
+        for category in module.get("categories", []):
+            for group in category.get("groups", []):
+                for kw in group.get("keywords", []):
+                    if kw and kw not in keywords:
+                        keywords.append(kw)
+    return keywords
 
 
 class AdminRequestHandler(SimpleHTTPRequestHandler):
@@ -795,11 +812,23 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         return filename, data.decode("utf-8-sig")
 
     def _send_news_keywords_list(self):
-        """返回所有已存储的关键词列表（用于筛选下拉框）。"""
+        """返回关键词列表，用户常用关键词在前，系统关键词在后。"""
+        user = self._require_auth()
+        if not user:
+            return
         try:
-            from trendradar.storage.news_repository import get_all_keywords
-            keywords = get_all_keywords()
-            self._send_json(200, {"keywords": keywords})
+            user_keywords = user_keyword_repository.get_user_keywords(user["id"])
+
+            system_keywords = _extract_system_keywords()
+            seen = {uk["keyword"] for uk in user_keywords}
+            remaining = [kw for kw in system_keywords if kw not in seen]
+
+            self._send_json(200, {
+                "keywords": {
+                    "user": user_keywords,
+                    "system": remaining,
+                },
+            })
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 
@@ -818,6 +847,11 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
             favorite_only = query.get("favorite_only", ["0"])[0] in ("1", "true", "True")
             page = int(query.get("page", ["1"])[0])
             page_size = int(query.get("page_size", ["200"])[0])
+            if keyword and keyword.strip():
+                try:
+                    user_keyword_repository.record_usage(user["id"], keyword.strip())
+                except Exception:
+                    pass
             favorite_article_ids = None
             if favorite_only:
                 favorite_article_ids = list(
@@ -1383,6 +1417,7 @@ def run(host="0.0.0.0", port=8080):
     ensure_news_article_columns()
     news_favorite_repository.ensure_schema()
     news_share_repository.ensure_schema()
+    user_keyword_repository.ensure_schema()
     try:
         from trendradar.ai.news_interpreter import enqueue_pending_interpretations
         pending = enqueue_pending_interpretations(limit=30)

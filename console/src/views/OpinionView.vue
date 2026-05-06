@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, nextTick, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { Search, RefreshRight, Share, Loading } from "@element-plus/icons-vue";
 import QRCode from "qrcode";
@@ -11,6 +11,7 @@ import {
   deleteFavorite,
   createOrUpdateShare,
   interpretArticle,
+  fetchKeywordList,
 } from "../api/news";
 
 const items = ref([]);
@@ -22,12 +23,22 @@ const keyword = ref("");
 const selectedDate = ref("");
 const selectedSource = ref("");
 const favoriteOnly = ref(false);
+const keywordOptions = ref([]);
 
 const highlightKeyword = ref("");
 const now = ref(Date.now());
 
 const TABLE_FONT_STORAGE_KEY = "trendradar:opinion-table-font-size";
 const LAYOUT_MODE_STORAGE_KEY = "trendradar:opinion-layout-mode";
+const COLUMN_WIDTH_STORAGE_KEY = "trendradar:opinion-column-widths";
+const COLUMN_MIN_WIDTHS = {
+  时间: 136,
+  新闻标题: 420,
+  匹配关键词: 180,
+  来源: 96,
+  AI解读: 150,
+  热度: 82,
+};
 const TABLE_FONT_MIN = 12;
 const TABLE_FONT_MAX = 24;
 const TABLE_FONT_DEFAULT = 13;
@@ -68,7 +79,8 @@ function formatTime(iso) {
   if (!iso) return "-";
   const d = new Date(iso);
   const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${yy}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 function heatLevel(count) {
@@ -195,6 +207,136 @@ function setLayoutMode(mode) {
   window.localStorage.setItem(LAYOUT_MODE_STORAGE_KEY, mode);
 }
 
+const columnWidths = ref({});
+const opinionTableRef = ref(null);
+let resizeHandlesPending = false;
+
+function loadColumnWidths() {
+  if (typeof window === "undefined") return;
+  const raw = window.localStorage.getItem(COLUMN_WIDTH_STORAGE_KEY);
+  if (raw) {
+    try {
+      const saved = JSON.parse(raw);
+      columnWidths.value = Object.fromEntries(
+        Object.entries(saved || {})
+          .map(([label, width]) => [label, normalizeColumnWidth(label, width, 0)])
+          .filter(([, width]) => width > 0)
+      );
+      saveColumnWidths();
+    } catch { /* ignore */ }
+  }
+}
+
+function saveColumnWidths() {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(COLUMN_WIDTH_STORAGE_KEY, JSON.stringify(columnWidths.value));
+}
+
+function colWidth(label, fallback) {
+  return normalizeColumnWidth(label, columnWidths.value[label] || fallback, fallback);
+}
+
+function minColumnWidth(label) {
+  return COLUMN_MIN_WIDTHS[label] || 80;
+}
+
+function normalizeColumnWidth(label, width, fallback) {
+  const parsed = Number(width);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.max(minColumnWidth(label), parsed);
+}
+
+function setupResizeHandles() {
+  if (resizeHandlesPending) return;
+  resizeHandlesPending = true;
+  nextTick(() => {
+    resizeHandlesPending = false;
+    const el = opinionTableRef.value?.$el;
+    if (!el) return;
+    const ths = el.querySelectorAll('.el-table__header-wrapper th.el-table__cell');
+    if (!ths.length) return;
+    const labels = [];
+    ths.forEach(th => {
+      const cell = th.querySelector('.cell');
+      labels.push(cell ? cell.textContent.trim() : '');
+    });
+    ths.forEach((th, index) => {
+      if (th.querySelector('.col-resizer')) return;
+      const label = labels[index];
+      th.style.position = 'relative';
+      const resizer = document.createElement('div');
+      resizer.className = 'col-resizer';
+      Object.assign(resizer.style, {
+        position: 'absolute', right: '0', top: '50%', transform: 'translateY(-50%)',
+        height: '20px', width: '2px', cursor: 'col-resize', zIndex: '10', userSelect: 'none',
+        borderRadius: '1px', background: 'rgba(148,163,184,0.25)',
+        transition: 'transform 0.12s ease-out, background 0.15s ease, height 0.15s ease',
+      });
+      resizer.addEventListener('mouseenter', () => {
+        resizer.style.background = 'rgba(0,212,255,0.5)';
+        resizer.style.height = '60%';
+        resizer.style.width = '2px';
+      });
+      resizer.addEventListener('mouseleave', () => {
+        resizer.style.background = 'rgba(148,163,184,0.25)';
+        resizer.style.height = '20px';
+        resizer.style.width = '2px';
+      });
+      const isTitleColumn = label === '新闻标题';
+      const targetIndex = isTitleColumn ? index + 1 : index;
+      const targetLabel = isTitleColumn ? labels[targetIndex] : label;
+      let dragging = false, startX = 0, startWidth = 0, newWidth = 0;
+      const onMove = (e) => {
+        if (!dragging) return;
+        const delta = e.clientX - startX;
+        newWidth = isTitleColumn
+          ? Math.max(minColumnWidth(targetLabel), startWidth - delta)
+          : Math.max(minColumnWidth(targetLabel), startWidth + delta);
+        el.querySelectorAll(
+          `.el-table__body-wrapper td:nth-child(${targetIndex + 1}), .el-table__header-wrapper th:nth-child(${targetIndex + 1})`
+        ).forEach(cell => {
+          cell.style.width = newWidth + 'px';
+          cell.style.minWidth = newWidth + 'px';
+        });
+        resizer.style.transform = `translateY(-50%) translateX(${delta}px)`;
+        resizer.style.background = 'rgba(0,212,255,0.6)';
+        resizer.style.height = '60%';
+      };
+      const onUp = () => {
+        if (!dragging) return;
+        dragging = false;
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        resizer.style.transform = 'translateY(-50%)';
+        resizer.style.background = 'rgba(148,163,184,0.25)';
+        resizer.style.height = '20px';
+        if (targetLabel && newWidth > 0) {
+          columnWidths.value = { ...columnWidths.value, [targetLabel]: normalizeColumnWidth(targetLabel, newWidth, newWidth) };
+          saveColumnWidths();
+        }
+      };
+      resizer.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragging = true;
+        startX = e.clientX;
+        const targetTh = ths[targetIndex];
+        startWidth = targetTh ? targetTh.getBoundingClientRect().width : th.getBoundingClientRect().width;
+        newWidth = startWidth;
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+      });
+      th.appendChild(resizer);
+    });
+  });
+}
+
+watch(items, () => { setupResizeHandles(); });
+
 function increaseTableFontSize() {
   const nextSize = clampTableFontSize(tableFontSize.value + 1);
   if (nextSize !== tableFontSize.value) {
@@ -220,7 +362,28 @@ async function loadSources() {
   }
 }
 
+async function loadKeywordOptions() {
+  try {
+    const data = await fetchKeywordList();
+    const keywords = data.keywords || {};
+    const user = (keywords.user || []).map((kw) => ({
+      keyword: kw.keyword,
+      count: kw.usage_count,
+      group: "常用关键词",
+    }));
+    const system = (keywords.system || []).map((kw) => ({
+      keyword: kw,
+      count: 0,
+      group: "系统关键词",
+    }));
+    keywordOptions.value = [...user, ...system];
+  } catch {
+    // 关键词列表加载失败不影响主流程
+  }
+}
+
 async function loadNews() {
+  if (loading.value) return;
   loading.value = true;
   try {
     const params = { page: 1, page_size: 200 };
@@ -247,6 +410,7 @@ async function loadNews() {
 
 function onSearch() {
   loadNews();
+  loadKeywordOptions();
 }
 
 function onClear() {
@@ -371,8 +535,11 @@ async function submitShare() {
 onMounted(() => {
   loadTableFontSize();
   loadLayoutMode();
+  loadColumnWidths();
   loadSources();
+  loadKeywordOptions();
   loadNews();
+  setupResizeHandles();
 });
 </script>
 
@@ -382,15 +549,42 @@ onMounted(() => {
       <!-- 工具栏 -->
       <div class="opinion-toolbar">
         <div class="opinion-toolbar__left">
-          <el-input
+          <el-select
             v-model="keyword"
-            placeholder="输入关键词，回车搜索..."
-            :prefix-icon="Search"
+            filterable
+            allow-create
+            default-first-option
             clearable
+            placeholder="搜索或选择关键词..."
             class="opinion-search"
-            @keyup.enter="onSearch"
+            @change="onSearch"
             @clear="onSearch"
-          />
+            @keyup.enter="onSearch"
+            @blur="onSearch"
+          >
+            <el-option-group
+              v-if="keywordOptions.filter(o => o.group === '常用关键词').length"
+              label="常用关键词"
+            >
+              <el-option
+                v-for="opt in keywordOptions.filter(o => o.group === '常用关键词')"
+                :key="'user-' + opt.keyword"
+                :label="opt.keyword"
+                :value="opt.keyword"
+              >
+                <span>{{ opt.keyword }}</span>
+                <span class="opinion-search__count">{{ opt.count }}</span>
+              </el-option>
+            </el-option-group>
+            <el-option-group label="系统关键词">
+              <el-option
+                v-for="opt in keywordOptions.filter(o => o.group === '系统关键词')"
+                :key="'sys-' + opt.keyword"
+                :label="opt.keyword"
+                :value="opt.keyword"
+              />
+            </el-option-group>
+          </el-select>
           <el-date-picker
             v-model="selectedDate"
             type="date"
@@ -479,6 +673,7 @@ onMounted(() => {
         class="opinion-panel console-panel"
       >
         <el-table
+          ref="opinionTableRef"
           :data="items"
           v-loading="loading"
           class="opinion-table console-table"
@@ -487,12 +682,12 @@ onMounted(() => {
           stripe
           height="100%"
         >
-          <el-table-column prop="published_at" label="时间" width="170" align="center">
+          <el-table-column prop="published_at" label="时间" :width="colWidth('时间', 150)" align="center">
             <template #default="{ row }">
               <span class="opinion-time">{{ formatTime(row.published_at) }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="title" label="新闻标题" min-width="280">
+          <el-table-column prop="title" label="新闻标题" min-width="300">
             <template #default="{ row }">
               <div class="opinion-title-wrap">
                 <div class="opinion-action-group">
@@ -533,24 +728,27 @@ onMounted(() => {
               </div>
             </template>
           </el-table-column>
-          <el-table-column prop="source_name" label="来源" width="120" align="center">
+          <el-table-column prop="keywords" label="匹配关键词" :width="colWidth('匹配关键词', 300)">
+            <template #default="{ row }">
+              <div class="opinion-keywords">
+                <el-tag
+                  v-for="kw in (row.keywords || [])"
+                  :key="kw"
+                  size="small"
+                  class="opinion-kw-tag"
+                  :type="highlightKeyword && kw.toLowerCase().includes(highlightKeyword.toLowerCase()) ? 'danger' : ''"
+                >
+                  {{ kw }}
+                </el-tag>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column prop="source_name" label="来源" :width="colWidth('来源', 120)" align="center">
             <template #default="{ row }">
               <span class="opinion-source-tag">{{ row.source_name || '-' }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="解读状态" width="110" align="center">
-            <template #default="{ row }">
-              <span
-                class="opinion-status-tag"
-                :class="[interpretStatusClass(row.ai_interpret_status), { 'opinion-status-tag--clickable': row.ai_interpret_status !== '已解读' && row.ai_interpret_status !== '解读中' }]"
-                @click="triggerInterpret(row)"
-              >
-                <el-icon v-if="row.ai_interpret_status === '解读中'" class="is-loading opinion-status-spinner"><Loading /></el-icon>
-                {{ interpretStatusLabel(row.ai_interpret_status) }}
-              </span>
-            </template>
-          </el-table-column>
-          <el-table-column label="AI解读" width="170" align="center">
+          <el-table-column label="AI解读" :width="colWidth('AI解读', 170)" align="center">
             <template #default="{ row }">
               <el-tooltip
                 v-if="strongestSymbol(row.ai_symbols)"
@@ -569,13 +767,21 @@ onMounted(() => {
                 </span>
               </el-tooltip>
               <span
+                v-else-if="row.ai_interpret_status === '解读中'"
+                class="opinion-status-tag"
+                :class="interpretStatusClass(row.ai_interpret_status)"
+              >
+                <el-icon class="is-loading opinion-status-spinner"><Loading /></el-icon>
+                {{ interpretStatusLabel(row.ai_interpret_status) }}
+              </span>
+              <span
                 v-else
                 class="opinion-interpret-now"
                 @click="triggerInterpret(row)"
               >立即解读</span>
             </template>
           </el-table-column>
-          <el-table-column prop="crawl_count" label="热度" width="90" align="center">
+          <el-table-column prop="crawl_count" label="热度" :width="colWidth('热度', 90)" align="center">
             <template #default="{ row }">
               <span
                 class="opinion-heat"
@@ -583,21 +789,6 @@ onMounted(() => {
               >
                 {{ row.crawl_count || 1 }} 
               </span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="keywords" label="匹配关键词" width="180">
-            <template #default="{ row }">
-              <div class="opinion-keywords">
-                <el-tag
-                  v-for="kw in (row.keywords || [])"
-                  :key="kw"
-                  size="small"
-                  class="opinion-kw-tag"
-                  :type="highlightKeyword && kw.toLowerCase().includes(highlightKeyword.toLowerCase()) ? 'danger' : ''"
-                >
-                  {{ kw }}
-                </el-tag>
-              </div>
             </template>
           </el-table-column>
         </el-table>
@@ -854,7 +1045,17 @@ onMounted(() => {
 }
 
 .opinion-search {
-  width: 220px;
+  width: 240px;
+}
+
+.opinion-search__count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--console-muted);
+  background: rgba(100, 116, 139, 0.16);
+  padding: 1px 6px;
+  border-radius: 8px;
+  flex-shrink: 0;
 }
 
 .opinion-date {
@@ -1083,7 +1284,6 @@ onMounted(() => {
   flex: 1;
   min-height: 0;
   padding: 0;
-  overflow: hidden;
 }
 
 .opinion-card-board {
@@ -1301,7 +1501,6 @@ onMounted(() => {
 .opinion-card-link {
   color: #d5ebf8;
   font-size: calc(var(--opinion-table-font-size) + 2px);
-  font-weight: 600;
   line-height: 1.55;
   text-decoration: none;
   transition: color 0.25s ease;
@@ -1532,6 +1731,7 @@ onMounted(() => {
   --el-table-current-row-bg-color: rgba(0, 212, 255, 0.06);
   --opinion-table-font-size: 13px;
   font-size: var(--opinion-table-font-size);
+  min-width: 1050px;
 }
 
 :global(.theme--light .opinion-table) {
@@ -1602,6 +1802,7 @@ onMounted(() => {
   white-space: nowrap;
   max-width: 100%;
   color: #d5ebf8;
+  line-height: 1.45;
 }
 
 :global(.theme--light .opinion-title) {
@@ -1612,6 +1813,7 @@ onMounted(() => {
   display: flex;
   align-items: flex-start;
   gap: 10px;
+  min-width: 0;
 }
 
 .opinion-action-group {

@@ -2,7 +2,7 @@
 import { computed, ref, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { ArrowDown, CollectionTag, Cpu, House, List, Lock, Menu, Moon, Search, Setting, Sunny, User, UserFilled } from "@element-plus/icons-vue";
+import { ArrowDown, CollectionTag, Cpu, Expand, Fold, House, List, Lock, Menu, Moon, Search, Setting, Sunny, User, UserFilled } from "@element-plus/icons-vue";
 import { useSessionStore } from "../stores/session";
 
 const props = defineProps({
@@ -267,6 +267,22 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </nav>
+
+      <button
+        v-if="!isMobile"
+        class="console-sidebar-toggle"
+        type="button"
+        :title="collapsed ? '展开菜单' : '收起菜单'"
+        @click="toggleSidebar"
+      >
+        <el-icon>
+          <Expand v-if="collapsed" />
+          <Fold v-else />
+        </el-icon>
+        <span class="console-nav__label" :class="{ 'is-hidden': collapsed && !isMobile }">
+          {{ collapsed ? "展开" : "收起" }}
+        </span>
+      </button>
 
     </aside>
 

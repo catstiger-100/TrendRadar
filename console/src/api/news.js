@@ -49,3 +49,7 @@ export function interpretArticle(articleId) {
     body: JSON.stringify({ article_id: articleId }),
   });
 }
+
+export function fetchKeywordList() {
+  return request("/api/news/keywords-list");
+}
