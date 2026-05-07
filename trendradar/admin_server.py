@@ -964,14 +964,34 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         if not user:
             return
         try:
-            from trendradar.ai.news_interpreter import interpret_article_now
+            from trendradar.ai.news_interpreter import enqueue_article_interpretation_force
+            from trendradar.storage import news_repository
 
             payload = self._read_json_body()
             article_id = int(payload.get("article_id", 0))
             if article_id <= 0:
                 raise ValueError("文章 ID 无效")
-            result = interpret_article_now(article_id)
-            self._send_json(200, result)
+
+            article = news_repository.get_article_for_ai_interpretation(article_id)
+            if not article:
+                self._send_json(404, {"success": False, "reason": "文章不存在"})
+                return
+
+            status = article.get("ai_interpret_status", "")
+            if status == "已解读":
+                symbols = news_repository.get_article_ai_symbols(article_id)
+                self._send_json(200, {
+                    "success": True,
+                    "one_line_summary": article.get("ai_one_line_summary", ""),
+                    "symbols": symbols,
+                })
+                return
+            if status == "解读中":
+                self._send_json(200, {"success": True, "queued": True})
+                return
+
+            enqueue_article_interpretation_force([article_id])
+            self._send_json(200, {"success": True, "queued": True})
         except ValueError as exc:
             self._send_json(400, {"error": str(exc)})
         except Exception as exc:

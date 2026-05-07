@@ -479,6 +479,25 @@ def ensure_news_article_columns() -> None:
             ON news_article_ai_symbols (article_id, strength DESC)
             """
         )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS news_article_ai_interpret_cache (
+                cache_key TEXT PRIMARY KEY,
+                one_line_summary TEXT NOT NULL DEFAULT '',
+                raw_result TEXT NOT NULL DEFAULT '',
+                symbols JSONB NOT NULL DEFAULT '[]'::jsonb,
+                hit_count INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_news_article_ai_interpret_cache_updated_at
+            ON news_article_ai_interpret_cache (updated_at DESC)
+            """
+        )
         conn.commit()
         cur.close()
     except Exception as e:
@@ -517,7 +536,8 @@ def get_article_for_ai_interpretation(article_id: int) -> Optional[Dict[str, Any
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT id, title, summary, content, ai_interpret_status
+            SELECT id, title, summary, content, ai_interpret_status,
+                   ai_one_line_summary, ai_interpret_result
             FROM news_articles
             WHERE id = %s
             """,
@@ -533,6 +553,8 @@ def get_article_for_ai_interpretation(article_id: int) -> Optional[Dict[str, Any
             "summary": row[2] or "",
             "content": row[3] or "",
             "ai_interpret_status": row[4] or "",
+            "ai_one_line_summary": row[5] or "",
+            "ai_interpret_result": row[6] or "",
         }
     except Exception:
         conn.rollback()
@@ -641,6 +663,90 @@ def save_article_ai_interpretation(
                     for item in symbol_matches[:3]
                 ],
             )
+        conn.commit()
+        cur.close()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        _put_conn(conn)
+
+
+def get_ai_interpret_cache(cache_key: str) -> Optional[Dict[str, Any]]:
+    key = _normalize_text(cache_key).strip()
+    if not key:
+        return None
+
+    conn = _get_conn()
+    try:
+        conn.rollback()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            """
+            UPDATE news_article_ai_interpret_cache
+            SET hit_count = hit_count + 1,
+                updated_at = NOW()
+            WHERE cache_key = %s
+            RETURNING one_line_summary, raw_result, symbols
+            """,
+            (key,),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        cur.close()
+        if not row:
+            return None
+        symbols = row.get("symbols") or []
+        if isinstance(symbols, str):
+            try:
+                symbols = json.loads(symbols)
+            except Exception:
+                symbols = []
+        return {
+            "one_line_summary": row.get("one_line_summary", "") or "",
+            "raw_result": row.get("raw_result", "") or "",
+            "symbols": list(symbols or []),
+        }
+    except Exception:
+        conn.rollback()
+        return None
+    finally:
+        _put_conn(conn)
+
+
+def save_ai_interpret_cache(
+    cache_key: str,
+    one_line_summary: str,
+    raw_result: str,
+    symbol_matches: List[Dict[str, Any]],
+) -> None:
+    key = _normalize_text(cache_key).strip()
+    if not key:
+        return
+
+    conn = _get_conn()
+    try:
+        conn.rollback()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO news_article_ai_interpret_cache (
+                cache_key, one_line_summary, raw_result, symbols, hit_count, created_at, updated_at
+            )
+            VALUES (%s, %s, %s, %s::jsonb, 0, NOW(), NOW())
+            ON CONFLICT (cache_key) DO UPDATE SET
+                one_line_summary = EXCLUDED.one_line_summary,
+                raw_result = EXCLUDED.raw_result,
+                symbols = EXCLUDED.symbols,
+                updated_at = NOW()
+            """,
+            (
+                key,
+                _normalize_text(one_line_summary),
+                _normalize_text(raw_result),
+                json.dumps(list(symbol_matches or []), ensure_ascii=False),
+            ),
+        )
         conn.commit()
         cur.close()
     except Exception:

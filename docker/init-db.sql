@@ -327,6 +327,20 @@ CREATE TABLE IF NOT EXISTS news_article_ai_symbols (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- 新闻 AI 解读缓存表
+-- 说明：
+-- - 用标题/摘要/正文片段 hash 作为 key
+-- - 重复新闻或近似同内容重复触发时直接复用解读结果
+CREATE TABLE IF NOT EXISTS news_article_ai_interpret_cache (
+    cache_key TEXT PRIMARY KEY,
+    one_line_summary TEXT NOT NULL DEFAULT '',
+    raw_result TEXT NOT NULL DEFAULT '',
+    symbols JSONB NOT NULL DEFAULT '[]'::jsonb,
+    hit_count INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ============================================
 -- 新闻收藏表
 -- 对应“舆情纵览 -> 新闻收藏”功能
@@ -668,6 +682,19 @@ CREATE INDEX IF NOT EXISTS idx_news_article_ai_symbols_article_id
 
 CREATE INDEX IF NOT EXISTS idx_news_article_ai_symbols_strength
     ON news_article_ai_symbols (article_id, strength DESC);
+
+CREATE TABLE IF NOT EXISTS news_article_ai_interpret_cache (
+    cache_key TEXT PRIMARY KEY,
+    one_line_summary TEXT NOT NULL DEFAULT '',
+    raw_result TEXT NOT NULL DEFAULT '',
+    symbols JSONB NOT NULL DEFAULT '[]'::jsonb,
+    hit_count INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_news_article_ai_interpret_cache_updated_at
+    ON news_article_ai_interpret_cache (updated_at DESC);
 
 -- 迁移：分享表补建（适用于旧环境升级到带”新闻分享”功能的版本）
 CREATE TABLE IF NOT EXISTS news_article_shares (

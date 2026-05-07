@@ -178,6 +178,11 @@ async function triggerInterpret(row) {
   row.ai_interpret_status = "解读中";
   try {
     const result = await interpretArticle(row.id);
+    if (result.queued) {
+      ElMessage.success("已加入解读队列，稍后自动刷新页面即可查看结果");
+      startInterpretPolling(row);
+      return;
+    }
     if (result.success) {
       row.ai_interpret_status = "已解读";
       row.ai_one_line_summary = result.one_line_summary || "";
@@ -201,6 +206,56 @@ async function triggerInterpret(row) {
   } catch (e) {
     row.ai_interpret_status = "解读失败";
     ElMessage.error(e.message || "解读失败");
+  }
+}
+
+const POLL_INTERVAL_MS = 3000;
+const POLL_MAX_ATTEMPTS = 20;
+const _interpretPolls = new Map();
+
+async function startInterpretPolling(row) {
+  stopInterpretPolling(row);
+  let attempts = 0;
+  const timer = setInterval(async () => {
+    attempts++;
+    if (attempts > POLL_MAX_ATTEMPTS) {
+      stopInterpretPolling(row);
+      return;
+    }
+    try {
+      const result = await interpretArticle(row.id);
+      if (result.queued) return;
+      if (result.success) {
+        stopInterpretPolling(row);
+        row.ai_interpret_status = "已解读";
+        row.ai_one_line_summary = result.one_line_summary || "";
+        row.ai_interpret_result = result.one_line_summary || "";
+        if (result.symbols && result.symbols.length) {
+          row.ai_symbols = result.symbols.map((s) => ({
+            symbol_name: s.symbol_name,
+            symbol_code: s.symbol_code,
+            direction: s.direction,
+            strength: s.strength,
+          }));
+        }
+        ElMessage.success("解读完成");
+      } else {
+        stopInterpretPolling(row);
+        row.ai_interpret_status = "解读失败";
+        ElMessage.warning(result.reason || "解读失败");
+      }
+    } catch {
+      // 轮询失败不处理，继续等待
+    }
+  }, POLL_INTERVAL_MS);
+  _interpretPolls.set(row.id, timer);
+}
+
+function stopInterpretPolling(row) {
+  const timer = _interpretPolls.get(row.id);
+  if (timer) {
+    clearInterval(timer);
+    _interpretPolls.delete(row.id);
   }
 }
 
@@ -579,6 +634,10 @@ onBeforeUnmount(() => {
     clearInterval(countdownTimer);
     countdownTimer = null;
   }
+  for (const timer of _interpretPolls.values()) {
+    clearInterval(timer);
+  }
+  _interpretPolls.clear();
 });
 </script>
 

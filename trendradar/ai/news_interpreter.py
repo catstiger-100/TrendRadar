@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import queue
+import re
 import threading
 from typing import Any, Dict, List
 
@@ -26,8 +28,18 @@ logger = logging.getLogger(__name__)
 _task_queue: "queue.Queue[int]" = queue.Queue()
 _queue_seen: set[int] = set()
 _queue_lock = threading.Lock()
-_worker_started = False
+_workers_started = False
 _worker_lock = threading.Lock()
+
+INTERPRET_WORKERS = max(1, min(8, int(os.environ.get("NEWS_AI_INTERPRET_WORKERS", "3") or 3)))
+AI_CONCURRENCY = max(1, min(INTERPRET_WORKERS, int(os.environ.get("NEWS_AI_INTERPRET_CONCURRENCY", "2") or 2)))
+INPUT_CONTENT_CHARS = max(0, int(os.environ.get("NEWS_AI_INTERPRET_CONTENT_CHARS", "800") or 800))
+INPUT_SUMMARY_CHARS = max(0, int(os.environ.get("NEWS_AI_INTERPRET_SUMMARY_CHARS", "300") or 300))
+OUTPUT_MAX_TOKENS = max(80, int(os.environ.get("NEWS_AI_INTERPRET_MAX_TOKENS", "180") or 180))
+AI_TIMEOUT_SECONDS = max(5, int(os.environ.get("NEWS_AI_INTERPRET_TIMEOUT", "12") or 12))
+AI_NUM_RETRIES = max(0, int(os.environ.get("NEWS_AI_INTERPRET_RETRIES", "0") or 0))
+AI_TEMPERATURE = float(os.environ.get("NEWS_AI_INTERPRET_TEMPERATURE", "0.1") or 0.1)
+_ai_semaphore = threading.BoundedSemaphore(AI_CONCURRENCY)
 
 DEFAULT_SYMBOLS: List[Dict[str, str]] = [
     {"name": "黄金", "code": "AU", "sector": "贵金属", "exchange": "上海期货交易所"},
@@ -74,51 +86,33 @@ DEFAULT_SYMBOLS: List[Dict[str, str]] = [
 ]
 
 SYSTEM_PROMPT = """
-你是一名资深中国期货分析师，擅长从宏观、产业链、供需、政策、情绪和资金风格角度，
-判断一条新闻对国内期货品种的影响。
-
-你的输出必须严格是 JSON，不要输出任何多余文字。
+你是期货新闻快读助手。只输出 JSON，不要解释。
 """
 
 USER_PROMPT_TEMPLATE = """
-请基于下面这条新闻，做期货角度的快速解读：
-
-新闻标题：
+标题:
 {title}
 
-新闻摘要：
+摘要:
 {summary}
 
-新闻正文：
+正文片段:
 {content}
 
-可选期货品种清单（名称|代码|板块|交易所）：
+候选品种(名称|代码):
 {symbols}
 
-请完成以下任务：
-1. 找出与这条新闻最相关的期货品种，最多返回 3 个；
-2. 对每个品种判断方向：看多、看空、中性；
-3. 对每个品种判断影响强度：1 到 5 的整数，5 为最强；
-4. 生成一句期货分析师视角的一句话解读，不超过 50 个汉字。
-
-输出 JSON 格式如下：
+做快速粗略解读，最多选 3 个品种，弱相关则 symbols=[]。
+每个品种必须同时返回候选清单里的 name 和 code，不确定就不要返回该品种。
+方向只能是 看多/看空/中性，strength 为 1-5。
+一句话不超过 50 个汉字。
+返回:
 {{
-  "one_line_summary": "不超过50字的一句话解读",
+  "one_line_summary": "",
   "symbols": [
-    {{
-      "name": "品种名称",
-      "code": "品种代码",
-      "direction": "看多/看空/中性",
-      "strength": 1
-    }}
+    {{"name": "", "code": "", "direction": "看多", "strength": 3}}
   ]
 }}
-
-注意：
-- 只允许从提供的品种清单中选择；
-- 如果新闻和期货相关性弱，可以返回空数组；
-- strength 必须是 1~5 的整数；
-- direction 只能是：看多、看空、中性。
 """
 
 
@@ -126,6 +120,10 @@ def enqueue_article_interpretation(article_ids: List[int]) -> None:
     if not _is_auto_interpret_enabled():
         logger.info("AI 新闻解读自动入队已跳过: 自动解读开关未开启")
         return
+    enqueue_article_interpretation_force(article_ids)
+
+
+def enqueue_article_interpretation_force(article_ids: List[int]) -> None:
     _ensure_worker_started()
     queued = 0
     with _queue_lock:
@@ -140,20 +138,25 @@ def enqueue_article_interpretation(article_ids: List[int]) -> None:
 
 
 def _ensure_worker_started() -> None:
-    global _worker_started
-    if _worker_started:
+    global _workers_started
+    if _workers_started:
         return
     with _worker_lock:
-        if _worker_started:
+        if _workers_started:
             return
-        thread = threading.Thread(
-            target=_worker_loop,
-            name="news-ai-interpreter",
-            daemon=True,
+        for index in range(INTERPRET_WORKERS):
+            thread = threading.Thread(
+                target=_worker_loop,
+                name=f"news-ai-interpreter-{index + 1}",
+                daemon=True,
+            )
+            thread.start()
+        _workers_started = True
+        logger.info(
+            "AI 新闻解读 worker 已启动: workers=%s ai_concurrency=%s",
+            INTERPRET_WORKERS,
+            AI_CONCURRENCY,
         )
-        thread.start()
-        _worker_started = True
-        logger.info("AI 新闻解读 worker 已启动")
 
 
 def _worker_loop() -> None:
@@ -184,11 +187,28 @@ def _process_single_article(article_id: int) -> Dict[str, Any]:
     if status == "解读中":
         return {"success": False, "reason": "正在解读中，请稍后再试"}
 
+    cache_key = _build_interpret_cache_key(article)
+    cached = news_repository.get_ai_interpret_cache(cache_key)
+    if cached:
+        news_repository.save_article_ai_interpretation(
+            article_id=article_id,
+            one_line_summary=cached.get("one_line_summary", ""),
+            raw_result=cached.get("raw_result", ""),
+            symbol_matches=cached.get("symbols", []),
+        )
+        logger.info("AI 新闻解读命中缓存: article_id=%s", article_id)
+        return {
+            "success": True,
+            "one_line_summary": cached.get("one_line_summary", ""),
+            "symbols": cached.get("symbols", []),
+            "cached": True,
+        }
+
     config = load_config()
-    ai_config = (config.get("AI_FAST", {}) or {}) if (config.get("AI_FAST", {}) or {}).get("MODEL") else config.get("AI", {})
+    ai_config = config.get("AI_FAST", {}) or {}
     if not ai_config.get("MODEL") or not ai_config.get("API_KEY"):
-        logger.info("AI 新闻解读跳过: 未配置快速模型或通用 AI 模型")
-        return {"success": False, "reason": "未配置 AI 模型"}
+        logger.info("AI 新闻解读跳过: 未配置快速模型")
+        return {"success": False, "reason": "未配置快速 AI 模型"}
 
     symbols = futures_symbol_repository.list_symbols() or DEFAULT_SYMBOLS
     if not symbols:
@@ -198,10 +218,10 @@ def _process_single_article(article_id: int) -> Dict[str, Any]:
     client = AIClient(
         {
             **ai_config,
-            "TEMPERATURE": 0.2,
-            "MAX_TOKENS": 600,
-            "TIMEOUT": 45,
-            "NUM_RETRIES": 1,
+            "TEMPERATURE": AI_TEMPERATURE,
+            "MAX_TOKENS": OUTPUT_MAX_TOKENS,
+            "TIMEOUT": AI_TIMEOUT_SECONDS,
+            "NUM_RETRIES": AI_NUM_RETRIES,
         }
     )
     valid, error = client.validate_config()
@@ -211,24 +231,38 @@ def _process_single_article(article_id: int) -> Dict[str, Any]:
 
     logger.info("AI 新闻解读开始: article_id=%s model=%s", article_id, ai_config.get("MODEL", ""))
     news_repository.mark_article_ai_interpret_status(article_id, "解读中")
+    prompt_article = _build_prompt_article(article)
     prompt = USER_PROMPT_TEMPLATE.format(
-        title=article.get("title", "") or "",
-        summary=article.get("summary", "") or "",
-        content=article.get("content", "") or "",
+        title=prompt_article.get("title", ""),
+        summary=prompt_article.get("summary", ""),
+        content=prompt_article.get("content", ""),
         symbols=_serialize_symbols(symbols),
     )
-    response = client.chat(
-        [
-            {"role": "system", "content": SYSTEM_PROMPT.strip()},
-            {"role": "user", "content": prompt.strip()},
-        ],
-        temperature=0.2,
-        max_tokens=600,
-    )
+    try:
+        with _ai_semaphore:
+            response = client.chat(
+                [
+                    {"role": "system", "content": SYSTEM_PROMPT.strip()},
+                    {"role": "user", "content": prompt.strip()},
+                ],
+                temperature=AI_TEMPERATURE,
+                max_tokens=OUTPUT_MAX_TOKENS,
+                timeout=AI_TIMEOUT_SECONDS,
+                num_retries=AI_NUM_RETRIES,
+            )
+    except Exception:
+        news_repository.mark_article_ai_interpret_status(article_id, news_repository.AI_INTERPRET_STATUS_FAILED)
+        raise
 
     parsed = _parse_response(response)
     one_line_summary = _normalize_one_line_summary(parsed.get("one_line_summary", ""))
     matched_symbols = _normalize_symbol_matches(parsed.get("symbols", []), symbols)
+    news_repository.save_ai_interpret_cache(
+        cache_key=cache_key,
+        one_line_summary=one_line_summary,
+        raw_result=response,
+        symbol_matches=matched_symbols,
+    )
 
     news_repository.save_article_ai_interpretation(
         article_id=article_id,
@@ -254,15 +288,47 @@ def enqueue_pending_interpretations(limit: int = 50) -> int:
         logger.info("AI 新闻解读补跑任务已跳过: 自动解读开关未开启")
         return 0
     article_ids = news_repository.get_pending_ai_interpretation_article_ids(limit=limit)
-    enqueue_article_interpretation(article_ids)
+    enqueue_article_interpretation_force(article_ids)
     return len(article_ids)
 
 
 def _serialize_symbols(symbols: List[Dict[str, Any]]) -> str:
     return "\n".join(
-        f"- {item.get('name', '')}|{item.get('code', '')}|{item.get('sector', '')}|{item.get('exchange', '')}"
+        f"- {item.get('name', '')}|{item.get('code', '')}"
         for item in symbols
     )
+
+
+def _build_prompt_article(article: Dict[str, Any]) -> Dict[str, str]:
+    return {
+        "title": _compact_text(article.get("title", ""), 160),
+        "summary": _compact_text(article.get("summary", ""), INPUT_SUMMARY_CHARS),
+        "content": _compact_text(article.get("content", ""), INPUT_CONTENT_CHARS),
+    }
+
+
+def _compact_text(value: Any, limit: int) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if limit <= 0:
+        return ""
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip()
+
+
+def _build_interpret_cache_key(article: Dict[str, Any]) -> str:
+    import hashlib
+
+    prompt_article = _build_prompt_article(article)
+    normalized = "\n".join(
+        [
+            prompt_article.get("title", "").lower(),
+            prompt_article.get("summary", "").lower(),
+            prompt_article.get("content", "").lower(),
+        ]
+    )
+    normalized = re.sub(r"\s+", "", normalized)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def _parse_response(response: str) -> Dict[str, Any]:
@@ -308,7 +374,15 @@ def _normalize_symbol_matches(raw_symbols: Any, all_symbols: List[Dict[str, Any]
             continue
         raw_name = str(raw_item.get("name", "") or "").strip()
         raw_code = str(raw_item.get("code", "") or "").strip().upper()
-        matched = symbol_map.get(raw_name) or code_map.get(raw_code)
+        if raw_name:
+            matched = symbol_map.get(raw_name)
+            if not matched:
+                continue
+            matched_code = str(matched.get("code", "") or "").strip().upper()
+            if raw_code and matched_code and raw_code != matched_code:
+                continue
+        else:
+            matched = code_map.get(raw_code)
         if not matched:
             continue
 
