@@ -331,6 +331,46 @@ def _build_interpret_cache_key(article: Dict[str, Any]) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
+def _sanitize_json_strings(text: str) -> str:
+    """Escape unescaped control characters inside JSON string values.
+
+    LLMs occasionally emit raw newlines, tabs, or carriage returns inside
+    JSON string values, which breaks the parser.  This scans character by
+    character so it correctly handles backslash-escaped quotes inside strings.
+    """
+    result: list[str] = []
+    in_string = False
+    escape_next = False
+    for ch in text:
+        if escape_next:
+            escape_next = False
+            result.append(ch)
+            continue
+        if ch == "\\":
+            escape_next = True
+            result.append(ch)
+            continue
+        if ch == '"':
+            in_string = not in_string
+            result.append(ch)
+            continue
+        if in_string:
+            if ch == "\n":
+                result.append("\\n")
+                continue
+            if ch == "\r":
+                result.append("\\r")
+                continue
+            if ch == "\t":
+                result.append("\\t")
+                continue
+            if ord(ch) < 0x20:
+                result.append(f"\\u{ord(ch):04x}")
+                continue
+        result.append(ch)
+    return "".join(result)
+
+
 def _parse_response(response: str) -> Dict[str, Any]:
     text = (response or "").strip()
     if not text:
@@ -341,13 +381,20 @@ def _parse_response(response: str) -> Dict[str, Any]:
         if text.startswith("json"):
             text = text[4:].strip()
 
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        text = text[start : end + 1]
+
+    text = _sanitize_json_strings(text)
+
     try:
-        return json.loads(text)
+        return json.loads(text, strict=False)
     except Exception:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            return json.loads(text[start:end + 1])
+        logger.warning(
+            "AI 新闻解读 JSON 解析失败，原始响应(前500字符): %s",
+            text[:500],
+        )
         raise
 
 
