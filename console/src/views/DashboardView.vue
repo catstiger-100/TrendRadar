@@ -1,14 +1,14 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from "vue";
 import { ElMessage } from "element-plus";
-import { Loading } from "@element-plus/icons-vue";
+import { Loading, Refresh } from "@element-plus/icons-vue";
 import VChart from "vue-echarts";
 import * as echarts from "echarts/core";
 import { BarChart, LineChart, PieChart } from "echarts/charts";
 import { GridComponent, TooltipComponent, LegendComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import ConsoleLayout from "../layout/ConsoleLayout.vue";
-import { fetchSituationOverview } from "../api/situation";
+import { fetchSituationOverview, triggerSituationAnalysis } from "../api/situation";
 
 echarts.use([BarChart, LineChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer]);
 
@@ -18,6 +18,9 @@ const symbolStats = ref({ direction_stats: [], top_symbols: [] });
 const articles = ref([]);
 const analysis = ref({ success: false, error: "", analyzed_at: 0 });
 let refreshTimer = null;
+
+const TOP_LIMIT_OPTIONS = [10, 15, 20, 30];
+const topLimit = ref(10);
 
 const theme = ref("dark");
 const THEME_KEY = "trendradar:console-theme";
@@ -154,7 +157,7 @@ const directionChartOption = computed(() => {
 });
 
 const topSymbolsChartOption = computed(() => {
-  const data = (symbolStats.value.top_symbols || []).slice(0, 10).reverse();
+  const data = (symbolStats.value.top_symbols || []).slice(0, topLimit.value).reverse();
   return {
     tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
     grid: { left: "3%", right: "10%", bottom: "3%", top: "8%", containLabel: true },
@@ -165,7 +168,12 @@ const topSymbolsChartOption = computed(() => {
     },
     yAxis: {
       type: "category",
-      data: data.map((d) => d.symbol_code || d.symbol_name),
+      data: data.map((d) => {
+        const code = d.symbol_code || "";
+        const name = d.symbol_name || "";
+        if (code && name && code !== name) return `${code} ${name}`;
+        return code || name || "-";
+      }),
       axisLabel: { color: chartTextColor(), fontSize: 11, fontWeight: "bold" },
       axisLine: { lineStyle: { color: chartBorderColor() } },
     },
@@ -185,6 +193,11 @@ const topSymbolsChartOption = computed(() => {
       },
     ],
   };
+});
+
+const topSymbolsChartHeight = computed(() => {
+  const count = Math.min((symbolStats.value.top_symbols || []).length, topLimit.value);
+  return Math.max(count * 28 + 48, 280) + "px";
 });
 
 function formatTime(iso) {
@@ -212,13 +225,38 @@ function analysisTimeAgo() {
 
 async function loadData() {
   try {
-    const data = await fetchSituationOverview();
+    const data = await fetchSituationOverview({ topLimit: topLimit.value });
     stats.value = data.stats || { overview: {}, source_stats: [], hourly_stats: [] };
     symbolStats.value = data.symbol_stats || { direction_stats: [], top_symbols: [] };
     articles.value = data.articles || [];
     analysis.value = data.analysis || { success: false, error: "", analyzed_at: 0 };
   } catch (e) {
     // 首次加载静默失败，后续轮询不弹错误
+  }
+}
+
+const refreshingAnalysis = ref(false);
+
+async function refreshAnalysis() {
+  if (refreshingAnalysis.value) return;
+  refreshingAnalysis.value = true;
+  try {
+    const resp = await triggerSituationAnalysis();
+    if (resp && resp.analysis) {
+      analysis.value = resp.analysis;
+    }
+    await loadData();
+    ElMessage.success("AI 态势解读已更新");
+  } catch (e) {
+    const msg =
+      e?.payload?.error || e?.message || "AI 解读失败";
+    if (e?.status === 409) {
+      ElMessage.warning(msg);
+    } else {
+      ElMessage.error(msg);
+    }
+  } finally {
+    refreshingAnalysis.value = false;
   }
 }
 
@@ -265,9 +303,9 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <!-- 3 列两行布局 -->
+      <!-- 3 列两行布局：第一列 50%（新闻+AI解读），第二/三列各 25% -->
       <div class="situation-main-grid">
-        <!-- Row 1: 最新新闻 | 来源分布 | 品种多空分布 -->
+        <!-- Row 1, Col 1: 最新新闻 -->
         <div class="console-panel situation-news-panel">
           <div class="situation-news-panel__header">
             <div>
@@ -310,6 +348,38 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
+        <!-- Row 1, Col 2: 热门品种 TOP N -->
+        <div class="console-panel situation-chart-panel situation-chart-panel--scroll">
+          <div class="console-panel__header">
+            <div>
+              <p class="console-panel__eyebrow">Hot Symbols</p>
+              <h3>热门品种 TOP {{ topLimit }}</h3>
+            </div>
+            <el-select
+              v-model="topLimit"
+              size="small"
+              class="situation-top-select"
+              @change="loadData"
+            >
+              <el-option
+                v-for="n in TOP_LIMIT_OPTIONS"
+                :key="n"
+                :label="`Top ${n}`"
+                :value="n"
+              />
+            </el-select>
+          </div>
+          <div class="situation-chart-scroll">
+            <v-chart
+              class="situation-chart situation-chart--tall"
+              :style="{ height: topSymbolsChartHeight }"
+              :option="topSymbolsChartOption"
+              autoresize
+            />
+          </div>
+        </div>
+
+        <!-- Row 1, Col 3: 来源分布 -->
         <div class="console-panel situation-chart-panel">
           <div class="console-panel__header">
             <div>
@@ -320,37 +390,7 @@ onBeforeUnmount(() => {
           <v-chart class="situation-chart" :option="sourceChartOption" autoresize />
         </div>
 
-        <div class="console-panel situation-chart-panel">
-          <div class="console-panel__header">
-            <div>
-              <p class="console-panel__eyebrow">Direction Distribution</p>
-              <h3>品种多空分布</h3>
-            </div>
-          </div>
-          <v-chart class="situation-chart" :option="directionChartOption" autoresize />
-        </div>
-
-        <!-- Row 2: 24h 采集时序 | 热门品种 TOP 10 | AI 态势解读 -->
-        <div class="console-panel situation-chart-panel">
-          <div class="console-panel__header">
-            <div>
-              <p class="console-panel__eyebrow">Hourly Activity</p>
-              <h3>24h 采集时序</h3>
-            </div>
-          </div>
-          <v-chart class="situation-chart" :option="hourlyChartOption" autoresize />
-        </div>
-
-        <div class="console-panel situation-chart-panel">
-          <div class="console-panel__header">
-            <div>
-              <p class="console-panel__eyebrow">Hot Symbols</p>
-              <h3>热门品种 TOP 10</h3>
-            </div>
-          </div>
-          <v-chart class="situation-chart" :option="topSymbolsChartOption" autoresize />
-        </div>
-
+        <!-- Row 2, Col 1: AI 态势解读 -->
         <div class="console-panel situation-analysis-panel">
           <div class="console-panel__header">
             <div>
@@ -384,9 +424,43 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div v-else class="situation-analysis-empty">
-            <el-icon class="is-loading" v-if="!analysis.error"><Loading /></el-icon>
-            <p>{{ analysis.error || "等待首次 AI 解读..." }}</p>
+            <p class="situation-analysis-empty__hint">
+              {{ analysis.error || "暂无 AI 解读内容，点击下方按钮立即生成" }}
+            </p>
+            <button
+              class="situation-analysis-refresh"
+              type="button"
+              :disabled="refreshingAnalysis"
+              :title="refreshingAnalysis ? '正在生成...' : '生成 AI 解读'"
+              @click="refreshAnalysis"
+            >
+              <el-icon v-if="refreshingAnalysis" class="is-loading"><Loading /></el-icon>
+              <el-icon v-else><Refresh /></el-icon>
+              <span>{{ refreshingAnalysis ? "生成中..." : "生成解读" }}</span>
+            </button>
           </div>
+        </div>
+
+        <!-- Row 2, Col 2: 品种多空分布 -->
+        <div class="console-panel situation-chart-panel">
+          <div class="console-panel__header">
+            <div>
+              <p class="console-panel__eyebrow">Direction Distribution</p>
+              <h3>品种多空分布</h3>
+            </div>
+          </div>
+          <v-chart class="situation-chart" :option="directionChartOption" autoresize />
+        </div>
+
+        <!-- Row 2, Col 3: 24h 采集时序 -->
+        <div class="console-panel situation-chart-panel">
+          <div class="console-panel__header">
+            <div>
+              <p class="console-panel__eyebrow">Hourly Activity</p>
+              <h3>24h 采集时序</h3>
+            </div>
+          </div>
+          <v-chart class="situation-chart" :option="hourlyChartOption" autoresize />
         </div>
       </div>
     </div>
@@ -590,10 +664,10 @@ onBeforeUnmount(() => {
   text-shadow: none;
 }
 
-/* ── 3 列两行主布局 ── */
+/* ── 3 列两行主布局：第一列 50%，第二/三列各 25% ── */
 .situation-main-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 2fr 1fr 1fr;
   grid-template-rows: 1fr 1fr;
   gap: 14px;
   flex: 1;
@@ -610,6 +684,30 @@ onBeforeUnmount(() => {
 .situation-chart {
   flex: 1;
   min-height: 0;
+}
+
+.situation-chart-panel--scroll {
+  overflow: hidden;
+}
+
+.situation-chart-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.situation-chart--tall {
+  width: 100%;
+}
+
+.situation-top-select {
+  width: 96px;
+}
+
+.situation-top-select :deep(.el-input__wrapper) {
+  background: var(--console-surface-muted, rgba(255, 255, 255, 0.04));
+  box-shadow: 0 0 0 1px var(--console-border, rgba(255, 255, 255, 0.12)) inset;
 }
 
 .situation-news-panel {
@@ -754,14 +852,46 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 14px;
   color: var(--console-muted);
   font-size: 14px;
 }
 
+.situation-analysis-empty__hint {
+  margin: 0;
+  text-align: center;
+  max-width: 320px;
+  line-height: 1.6;
+}
+
 .situation-analysis-empty .el-icon {
-  font-size: 28px;
+  font-size: 20px;
   color: var(--console-cyan);
+}
+
+.situation-analysis-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px;
+  border-radius: 999px;
+  border: 1px solid var(--console-cyan);
+  background: rgba(34, 211, 238, 0.08);
+  color: var(--console-cyan);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s ease, transform 0.18s ease, opacity 0.18s ease;
+}
+
+.situation-analysis-refresh:hover:not(:disabled) {
+  background: rgba(34, 211, 238, 0.18);
+  transform: translateY(-1px);
+}
+
+.situation-analysis-refresh:disabled {
+  cursor: wait;
+  opacity: 0.75;
 }
 
 /* ── 响应式 ── */

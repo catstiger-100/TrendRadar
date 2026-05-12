@@ -49,6 +49,9 @@ FREQUENCY_WORDS_PATH = Path(
 )
 BACKUP_DIR = Path(os.environ.get("FREQUENCY_BACKUP_DIR", str(CONFIG_DIR / "backups")))
 ADMIN_HTML_PATH = Path(__file__).resolve().parent / "static" / "admin.html"
+
+# AI 态势解读全局互斥锁：禁止并发触发（包括定时轮询与手动刷新）
+_SITUATION_REFRESH_LOCK = threading.Lock()
 XLSX_NS = {"main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 XLSX_MAIN_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 XLSX_REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -345,6 +348,9 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
             return
         if path == "/api/ai-analysis/reanalyze":
             self._reanalyze_ai()
+            return
+        if path == "/api/situation-overview/refresh":
+            self._refresh_situation_analysis()
             return
         if path == "/api/auth/login":
             self._login()
@@ -1200,8 +1206,16 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
             )
             from trendradar.ai.situation_analyzer import get_latest_analysis
 
+            query = parse_qs(urlparse(self.path).query)
+            try:
+                top_limit = int((query.get("top_limit") or ["10"])[0])
+            except (TypeError, ValueError):
+                top_limit = 10
+            if top_limit not in (10, 15, 20, 30):
+                top_limit = 10
+
             stats = get_situation_stats()
-            symbol_stats = get_situation_symbol_stats()
+            symbol_stats = get_situation_symbol_stats(top_limit=top_limit)
             articles = get_latest_articles(limit=40)
             analysis = get_latest_analysis()
 
@@ -1212,10 +1226,74 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
                     "symbol_stats": symbol_stats,
                     "articles": articles,
                     "analysis": analysis,
+                    "top_limit": top_limit,
                 },
             )
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
+
+    def _refresh_situation_analysis(self):
+        user = self._require_auth()
+        if not user:
+            return
+
+        username = user.get("username") if isinstance(user, dict) else str(user)
+
+        # 互斥：同一时刻只允许一次解读执行，并发请求直接 409
+        if not _SITUATION_REFRESH_LOCK.acquire(blocking=False):
+            print(
+                f"[situation-refresh] 用户 {username} 请求被拒绝：已有解读任务正在进行"
+            )
+            self._send_json(
+                409,
+                {
+                    "success": False,
+                    "error": "已有 AI 解读任务正在执行，请稍后重试",
+                },
+            )
+            return
+
+        started = datetime.now()
+        print(f"[situation-refresh] 用户 {username} 触发 AI 态势解读，开始执行 ...")
+
+        try:
+            from trendradar.ai.situation_analyzer import (
+                run_situation_analysis,
+                get_latest_analysis,
+            )
+
+            result = run_situation_analysis()
+            elapsed = (datetime.now() - started).total_seconds()
+
+            if not result.get("success"):
+                err = result.get("error", "AI 解读失败")
+                print(
+                    f"[situation-refresh] 用户 {username} 解读失败（耗时 {elapsed:.1f}s）："
+                    f"{err}"
+                )
+                self._send_json(
+                    500,
+                    {"success": False, "error": err, "elapsed": elapsed},
+                )
+                return
+
+            print(
+                f"[situation-refresh] 用户 {username} 解读完成（耗时 {elapsed:.1f}s）"
+            )
+            self._send_json(
+                200,
+                {
+                    "success": True,
+                    "elapsed": elapsed,
+                    "analysis": get_latest_analysis(),
+                },
+            )
+        except Exception as exc:
+            traceback.print_exc()
+            print(f"[situation-refresh] 用户 {username} 解读异常：{exc}")
+            self._send_json(500, {"success": False, "error": str(exc)})
+        finally:
+            _SITUATION_REFRESH_LOCK.release()
 
     def _send_ai_models(self):
         user = self._require_auth()
@@ -1527,15 +1605,20 @@ def run(host="0.0.0.0", port=8080):
         # 首次启动延迟 30 秒，等待服务就绪
         _time.sleep(30)
         while True:
-            try:
-                from trendradar.ai.situation_analyzer import run_situation_analysis
-                result = run_situation_analysis()
-                if result.get("success"):
-                    print(f"态势解读完成：{result.get('total_articles', 0)} 条新闻")
-                else:
-                    print(f"态势解读跳过：{result.get('error', '未知错误')}")
-            except Exception as exc:
-                print(f"态势解读执行失败: {exc}")
+            if not _SITUATION_REFRESH_LOCK.acquire(blocking=False):
+                print("态势解读跳过本轮：已有解读任务正在执行")
+            else:
+                try:
+                    from trendradar.ai.situation_analyzer import run_situation_analysis
+                    result = run_situation_analysis()
+                    if result.get("success"):
+                        print(f"态势解读完成：{result.get('total_articles', 0)} 条新闻")
+                    else:
+                        print(f"态势解读跳过：{result.get('error', '未知错误')}")
+                except Exception as exc:
+                    print(f"态势解读执行失败: {exc}")
+                finally:
+                    _SITUATION_REFRESH_LOCK.release()
             _time.sleep(3600)
 
     sit_thread = threading.Thread(

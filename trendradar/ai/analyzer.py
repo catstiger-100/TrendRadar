@@ -78,6 +78,13 @@ class AIAnalyzer:
         self.include_standalone = analysis_config.get("INCLUDE_STANDALONE", False)
         self.language = analysis_config.get("LANGUAGE", "Chinese")
 
+        # 输入长度预算（按字符估算，兼容 DashScope 30720 token 硬上限等场景）
+        # 总预算给整个 user prompt；热榜占 65%，RSS 占剩余
+        self.prompt_char_budget_total = int(
+            analysis_config.get("MAX_PROMPT_CHARS", 30000)
+        )
+        self.prompt_char_budget = int(self.prompt_char_budget_total * 0.65)
+
         # 加载提示词模板
         self.system_prompt, self.user_prompt_template = self._load_prompt_template(
             analysis_config.get("PROMPT_FILE", "ai_analysis_prompt.txt")
@@ -200,8 +207,24 @@ class AIAnalyzer:
         # 构建独立展示区内容
         standalone_content = ""
         if self.include_standalone and standalone_data:
-            standalone_content = self._prepare_standalone_content(standalone_data)
+            used_chars = len(news_content) + len(rss_content)
+            standalone_budget = max(0, self.prompt_char_budget_total - used_chars)
+            standalone_content = self._prepare_standalone_content(
+                standalone_data, char_budget=standalone_budget
+            )
         user_prompt = user_prompt.replace("{standalone_content}", standalone_content)
+
+        # 兜底长度检查：仍然超预算时对 user_prompt 硬截断，避免打到 DashScope 等服务端硬上限
+        if len(user_prompt) > self.prompt_char_budget_total:
+            original_len = len(user_prompt)
+            user_prompt = (
+                user_prompt[: self.prompt_char_budget_total]
+                + "\n\n[注意：上述输入因长度限制已截断，请基于可见内容尽力分析]"
+            )
+            print(
+                f"[AI] 输入超过 {self.prompt_char_budget_total} 字符预算"
+                f"（实际 {original_len}），已截断以避免 BadRequestError"
+            )
 
         if self.debug:
             print("\n" + "=" * 80)
@@ -267,17 +290,25 @@ class AIAnalyzer:
         news_count = 0
         rss_count = 0
 
+        char_budget = self.prompt_char_budget
+        news_char_used = 0
+
         # 计算总新闻数
         hotlist_total = sum(len(s.get("titles", [])) for s in stats) if stats else 0
         rss_total = sum(len(s.get("titles", [])) for s in rss_stats) if rss_stats else 0
 
         # 热榜内容
         if stats:
+            over_budget = False
             for stat in stats:
+                if over_budget:
+                    break
                 word = stat.get("word", "")
                 titles = stat.get("titles", [])
                 if word and titles:
-                    news_lines.append(f"\n**{word}** ({len(titles)}条)")
+                    header = f"\n**{word}** ({len(titles)}条)"
+                    news_lines.append(header)
+                    news_char_used += len(header)
                     for t in titles:
                         if not isinstance(t, dict):
                             continue
@@ -317,10 +348,18 @@ class AIAnalyzer:
                             timeline_str = self._format_rank_timeline(rank_timeline)
                             line += f" | 轨迹:{timeline_str}"
 
+                        # 字符预算：超过热榜份额则停止追加
+                        line_len = len(line) + 1
+                        if news_char_used + line_len > char_budget:
+                            over_budget = True
+                            break
+
                         news_lines.append(line)
+                        news_char_used += line_len
 
                         news_count += 1
                         if news_count >= self.max_news:
+                            over_budget = True
                             break
                 if news_count >= self.max_news:
                     break
@@ -328,13 +367,19 @@ class AIAnalyzer:
         # RSS 内容（仅在启用时构建）
         if self.include_rss and rss_stats:
             remaining = self.max_news - news_count
+            # 剩余字符预算给 RSS
+            rss_char_budget = max(0, self.prompt_char_budget_total - news_char_used)
+            rss_char_used = 0
+            over_budget = False
             for stat in rss_stats:
-                if rss_count >= remaining:
+                if over_budget or rss_count >= remaining:
                     break
                 word = stat.get("word", "")
                 titles = stat.get("titles", [])
                 if word and titles:
-                    rss_lines.append(f"\n**{word}** ({len(titles)}条)")
+                    header = f"\n**{word}** ({len(titles)}条)"
+                    rss_lines.append(header)
+                    rss_char_used += len(header)
                     for t in titles:
                         if not isinstance(t, dict):
                             continue
@@ -355,10 +400,18 @@ class AIAnalyzer:
                             line = f"- {title}"
                         if time_display:
                             line += f" | {time_display}"
+
+                        line_len = len(line) + 1
+                        if rss_char_used + line_len > rss_char_budget:
+                            over_budget = True
+                            break
+
                         rss_lines.append(line)
+                        rss_char_used += line_len
 
                         rss_count += 1
                         if rss_count >= remaining:
+                            over_budget = True
                             break
 
         news_content = "\n".join(news_lines) if news_lines else ""
@@ -421,27 +474,43 @@ class AIAnalyzer:
 
         return "→".join(parts)
 
-    def _prepare_standalone_content(self, standalone_data: Dict) -> str:
+    def _prepare_standalone_content(self, standalone_data: Dict, char_budget: int = 0) -> str:
         """
         将独立展示区数据转为文本，注入 AI 分析 prompt
 
         Args:
             standalone_data: 独立展示区数据 {"platforms": [...], "rss_feeds": [...]}
+            char_budget: 可用字符预算（0 表示不限制）
 
         Returns:
             格式化的文本内容
         """
         lines = []
+        char_used = 0
+
+        def _emit(line: str) -> bool:
+            nonlocal char_used
+            added = len(line) + 1
+            if char_budget and char_used + added > char_budget:
+                return False
+            lines.append(line)
+            char_used += added
+            return True
 
         # 热榜平台
+        over_budget = False
         for platform in standalone_data.get("platforms", []):
+            if over_budget:
+                break
             platform_id = platform.get("id", "")
             platform_name = platform.get("name", platform_id)
             items = platform.get("items", [])
             if not items:
                 continue
 
-            lines.append(f"### [{platform_name}]")
+            if not _emit(f"### [{platform_name}]"):
+                over_budget = True
+                break
             for item in items:
                 title = item.get("title", "")
                 if not title:
@@ -476,18 +545,25 @@ class AIAnalyzer:
                         timeline_str = self._format_rank_timeline(rank_timeline)
                         line += f" | 轨迹:{timeline_str}"
 
-                lines.append(line)
-            lines.append("")
+                if not _emit(line):
+                    over_budget = True
+                    break
+            if over_budget:
+                break
+            _emit("")
 
         # RSS 源
         for feed in standalone_data.get("rss_feeds", []):
+            if over_budget:
+                break
             feed_id = feed.get("id", "")
             feed_name = feed.get("name", feed_id)
             items = feed.get("items", [])
             if not items:
                 continue
 
-            lines.append(f"### [{feed_name}]")
+            if not _emit(f"### [{feed_name}]"):
+                break
             for item in items:
                 title = item.get("title", "")
                 if not title:
@@ -498,8 +574,12 @@ class AIAnalyzer:
                 if published_at:
                     line += f" | {published_at}"
 
-                lines.append(line)
-            lines.append("")
+                if not _emit(line):
+                    over_budget = True
+                    break
+            if over_budget:
+                break
+            _emit("")
 
         return "\n".join(lines)
 

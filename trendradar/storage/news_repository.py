@@ -882,8 +882,10 @@ def get_situation_stats() -> Dict[str, Any]:
         _put_conn(conn)
 
 
-def get_situation_symbol_stats() -> Dict[str, Any]:
-    """返回 24 小时内品种多空统计。"""
+def get_situation_symbol_stats(top_limit: int = 10) -> Dict[str, Any]:
+    """返回 24 小时内品种多空统计。top_limit 仅接受 10/15/20/30。"""
+    if top_limit not in (10, 15, 20, 30):
+        top_limit = 10
     conn = _get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -902,7 +904,7 @@ def get_situation_symbol_stats() -> Dict[str, Any]:
             )
             direction_stats = [dict(row) for row in cur.fetchall()]
 
-            # Top 15 热门品种（按提及次数）
+            # Top N 热门品种（按提及次数）
             cur.execute(
                 """
                 SELECT
@@ -915,8 +917,9 @@ def get_situation_symbol_stats() -> Dict[str, Any]:
                 WHERE a.created_at > NOW() - INTERVAL '24 hours'
                 GROUP BY s.symbol_name, s.symbol_code
                 ORDER BY mention_count DESC
-                LIMIT 15
-                """
+                LIMIT %s
+                """,
+                (top_limit,),
             )
             top_symbols = [dict(row) for row in cur.fetchall()]
 
