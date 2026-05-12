@@ -59,6 +59,13 @@ export function updateAiModels(payload) {
   });
 }
 
+export function updateAutoInterpret(enabled) {
+  return request("/api/ai-models/auto-interpret", {
+    method: "POST",
+    body: JSON.stringify({ auto_interpret_enabled: !!enabled }),
+  });
+}
+
 export function testAiModel(payload) {
   return request("/api/ai-models/test", {
     method: "POST",

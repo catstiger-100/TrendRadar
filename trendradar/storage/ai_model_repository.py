@@ -180,6 +180,52 @@ def get_settings() -> Dict[str, Any]:
         _put_conn(conn)
 
 
+def update_auto_interpret(enabled: Any) -> Dict[str, Any]:
+    """仅更新 auto_interpret_enabled 开关，不影响其他字段。"""
+    if isinstance(enabled, bool):
+        value = enabled
+    elif isinstance(enabled, str):
+        value = enabled.lower() in ("true", "1", "yes")
+    else:
+        raise ValueError("auto_interpret_enabled 参数无效")
+
+    ensure_schema()
+    conn = _get_conn()
+    try:
+        conn.rollback()
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                UPDATE ai_model_settings
+                SET auto_interpret_enabled = %s,
+                    updated_at = NOW()
+                WHERE id = 1
+                RETURNING
+                    id,
+                    fast_model_name,
+                    fast_provider,
+                    fast_base_url,
+                    fast_api_key,
+                    reasoning_model_name,
+                    reasoning_provider,
+                    reasoning_base_url,
+                    reasoning_api_key,
+                    auto_interpret_enabled,
+                    created_at,
+                    updated_at
+                """,
+                (value,),
+            )
+            row = cur.fetchone()
+        conn.commit()
+        return _row_to_dict(row)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        _put_conn(conn)
+
+
 def update_settings(payload: Dict[str, Any]) -> Dict[str, Any]:
     ensure_schema()
     data = _normalize_payload(payload)

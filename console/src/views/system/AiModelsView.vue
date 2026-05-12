@@ -2,10 +2,16 @@
 import { computed, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 import ConsoleLayout from "../../layout/ConsoleLayout.vue";
-import { fetchAiModels, testAiModel, updateAiModels } from "../../api/system";
+import {
+  fetchAiModels,
+  testAiModel,
+  updateAiModels,
+  updateAutoInterpret,
+} from "../../api/system";
 
 const loading = ref(false);
 const saving = ref(false);
+const autoInterpretSaving = ref(false);
 const testingFast = ref(false);
 const testingReasoning = ref(false);
 const providerPresets = ref({});
@@ -67,6 +73,23 @@ async function saveSettings() {
   }
 }
 
+async function onAutoInterpretChange(value) {
+  autoInterpretSaving.value = true;
+  try {
+    const data = await updateAutoInterpret(value);
+    if (data?.settings) {
+      form.auto_interpret_enabled = !!data.settings.auto_interpret_enabled;
+    }
+    ElMessage.success(data?.message || (value ? "自动解读已开启" : "自动解读已关闭"));
+  } catch (error) {
+    // 失败时回滚开关状态
+    form.auto_interpret_enabled = !value;
+    ElMessage.error(error.message || "自动解读状态保存失败");
+  } finally {
+    autoInterpretSaving.value = false;
+  }
+}
+
 async function runTest(modelType) {
   const loadingRef = modelType === "fast" ? testingFast : testingReasoning;
   loadingRef.value = true;
@@ -102,7 +125,12 @@ loadData();
           <span class="auto-interpret-bar__label">自动解读</span>
           <span class="auto-interpret-bar__hint">开启后，新入库的新闻将自动排队等待 AI 解读；关闭后仅可在舆情纵览中手动触发解读。</span>
         </div>
-        <el-switch v-model="form.auto_interpret_enabled" />
+        <el-switch
+          v-model="form.auto_interpret_enabled"
+          :loading="autoInterpretSaving"
+          :disabled="autoInterpretSaving"
+          @change="onAutoInterpretChange"
+        />
       </div>
 
       <div class="ai-model-grid">

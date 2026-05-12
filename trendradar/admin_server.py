@@ -376,6 +376,9 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/ai-models":
             self._update_ai_models()
             return
+        if path == "/api/ai-models/auto-interpret":
+            self._update_auto_interpret()
+            return
         if path == "/api/ai-models/test":
             self._test_ai_model()
             return
@@ -1331,6 +1334,32 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
                 {
                     "settings": settings,
                     "message": "AI 模型配置已保存",
+                },
+            )
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _update_auto_interpret(self):
+        user = self._require_auth()
+        if not user:
+            return
+        try:
+            payload = self._read_json_body() or {}
+            if "auto_interpret_enabled" not in payload:
+                self._send_json(400, {"error": "缺少 auto_interpret_enabled 字段"})
+                return
+            enabled = payload["auto_interpret_enabled"]
+            settings = ai_model_repository.update_auto_interpret(enabled)
+            username = user.get("username") if isinstance(user, dict) else str(user)
+            state = "开启" if settings.get("auto_interpret_enabled") else "关闭"
+            print(f"[ai-models] 用户 {username} {state} 自动解读")
+            self._send_json(
+                200,
+                {
+                    "settings": settings,
+                    "message": f"自动解读已{state}",
                 },
             )
         except ValueError as exc:
