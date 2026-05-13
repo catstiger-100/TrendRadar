@@ -829,11 +829,11 @@ onBeforeUnmount(() => {
               </div>
             </template>
           </el-table-column>
-          <el-table-column prop="keywords" label="匹配关键词" :width="colWidth('匹配关键词', 300)">
+          <el-table-column prop="match_words" label="匹配关键词" :width="colWidth('匹配关键词', 300)">
             <template #default="{ row }">
               <div class="opinion-keywords">
                 <el-tag
-                  v-for="kw in (row.keywords || [])"
+                  v-for="kw in (row.match_words || [])"
                   :key="kw"
                   size="small"
                   class="opinion-kw-tag"
@@ -948,7 +948,7 @@ onBeforeUnmount(() => {
                   <span>{{ row.is_shared ? "已分享" : "分享" }}</span>
                 </button>
                 <span
-                  v-for="kw in (row.keywords || [])"
+                  v-for="kw in (row.match_words || [])"
                   :key="kw"
                   class="opinion-card-keyword"
                 >

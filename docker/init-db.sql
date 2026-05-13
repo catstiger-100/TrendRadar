@@ -302,6 +302,7 @@ CREATE TABLE IF NOT EXISTS news_articles (
     category_l1 TEXT NOT NULL DEFAULT '',
     category_l2 TEXT NOT NULL DEFAULT '',
     keywords TEXT[] NOT NULL DEFAULT '{}',
+    match_words TEXT[] NOT NULL DEFAULT '{}',
     summary TEXT NOT NULL DEFAULT '',
     content TEXT NOT NULL DEFAULT '',
     ai_interpret_status TEXT NOT NULL DEFAULT '待解读',

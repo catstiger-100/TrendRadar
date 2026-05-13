@@ -996,6 +996,7 @@ class NewsAnalyzer:
                 cat_l1, cat_l2 = keyword_map.get(display_name, ("", ""))
                 for title_data in stat.get("titles", []):
                     matched_kw = title_data.get("matched_keywords", [])
+                    match_words = title_data.get("match_words", [])
                     source_id = str(title_data.get("source_id", "") or "")
                     articles.append({
                         "title": title_data.get("title", ""),
@@ -1006,6 +1007,7 @@ class NewsAnalyzer:
                         "category_l1": cat_l1,
                         "category_l2": cat_l2,
                         "keywords": matched_kw,
+                        "match_words": match_words,
                         "summary": "",
                         "content": "",
                         "crawl_time": now,

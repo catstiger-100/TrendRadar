@@ -83,20 +83,39 @@ def record_usage(user_id: int, keyword: str) -> None:
         _put_conn(conn)
 
 
-def get_user_keywords(user_id: int) -> List[Dict[str, Any]]:
+def get_user_keywords(user_id: int, limit: int = 20) -> List[Dict[str, Any]]:
+    """
+    返回该用户使用过的关键词，按使用次数倒序、最近使用时间倒序排列。
+
+    Args:
+        user_id: 用户 ID
+        limit: 返回条数上限（默认 20；传入非正数视为不限制）
+    """
     ensure_schema()
     conn = _get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """
-                SELECT keyword, usage_count
-                FROM user_keywords
-                WHERE user_id = %s
-                ORDER BY usage_count DESC, last_used_at DESC
-                """,
-                (user_id,),
-            )
+            if limit and limit > 0:
+                cur.execute(
+                    """
+                    SELECT keyword, usage_count
+                    FROM user_keywords
+                    WHERE user_id = %s
+                    ORDER BY usage_count DESC, last_used_at DESC
+                    LIMIT %s
+                    """,
+                    (user_id, limit),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT keyword, usage_count
+                    FROM user_keywords
+                    WHERE user_id = %s
+                    ORDER BY usage_count DESC, last_used_at DESC
+                    """,
+                    (user_id,),
+                )
             return [{"keyword": row["keyword"], "usage_count": row["usage_count"]} for row in cur.fetchall()]
     except Exception:
         conn.rollback()

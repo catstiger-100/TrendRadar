@@ -501,3 +501,109 @@ def matches_word_groups(
         return True
 
     return False
+
+
+# ==========================================================================
+# 自然匹配（用于 match_words 字段）
+# --------------------------------------------------------------------------
+# 语义：对一条已被选中的标题，遍历所有词组里的全部关键词（含正则行 /a|b|c/ 拆出的
+# 每个子词），凡是出现在标题里的都记录。
+#
+# 实现：把所有关键词合并成一条大正则 "(?:kw1|kw2|...)"，用 finditer 扫一次标题即可。
+# 相比逐词 in/search，时间复杂度从 O(N·M) 降到 O(M·len(title))（N=关键词数、
+# M=标题数），且 re 模块底层是 C 实现，常数极小。
+# ==========================================================================
+
+
+def _extract_literal_keywords(parsed_word: Dict) -> List[Tuple[str, str]]:
+    """
+    从一个已解析的词规则中提取"字面量关键词"列表。
+
+    对正则行（/a|b|c/ 或 a|b|c 简写），按 | 拆成多个子词；对纯字面词则返回自身。
+    任何包含正则元字符的子词将被丢弃（只保留字面量，保证自然匹配语义直观）。
+
+    Returns:
+        [(literal_keyword, display_keyword)]，display_keyword 即原始字面量
+        （match_words 记录命中的原始关键词，不用词组显示名）。
+    """
+    word = parsed_word.get("word", "") or ""
+    if not word:
+        return []
+
+    # 正则元字符（不含 |，因为 | 是合法的切分符）
+    regex_meta = set(r".^$*+?{}[]\()")
+
+    if parsed_word.get("is_regex"):
+        candidates = [p.strip() for p in word.split("|") if p.strip()]
+    else:
+        candidates = [word.strip()] if word.strip() else []
+
+    results: List[Tuple[str, str]] = []
+    for candidate in candidates:
+        if any(ch in regex_meta for ch in candidate):
+            continue
+        results.append((candidate, candidate))
+    return results
+
+
+def build_natural_match_index(word_groups: List[Dict]) -> Dict:
+    """
+    为自然匹配构建一次性索引。
+
+    Returns:
+        {
+            "pattern": re.Pattern 或 None（关键词为空时为 None）,
+            "keyword_to_display": {literal_lower: display_name},
+        }
+    """
+    keyword_to_display: Dict[str, str] = {}
+    ordered_literals: List[str] = []  # 保留首次出现顺序，便于输出稳定
+
+    for group in word_groups or []:
+        for parsed in list(group.get("normal") or []) + list(group.get("required") or []):
+            for literal, display in _extract_literal_keywords(parsed):
+                key = literal.lower()
+                if key in keyword_to_display:
+                    continue
+                keyword_to_display[key] = display
+                ordered_literals.append(literal)
+
+    if not ordered_literals:
+        return {"pattern": None, "keyword_to_display": {}}
+
+    # 长词在前，避免短词抢走长词的匹配位置（|的最左优先特性）
+    ordered_literals.sort(key=len, reverse=True)
+    pattern_str = "|".join(re.escape(lit) for lit in ordered_literals)
+    pattern = re.compile(pattern_str, re.IGNORECASE)
+    return {"pattern": pattern, "keyword_to_display": keyword_to_display}
+
+
+def extract_match_words(title: str, natural_index: Optional[Dict]) -> List[str]:
+    """
+    对标题做自然匹配，返回命中的关键词显示名列表（去重、保留首次命中顺序）。
+
+    Args:
+        title: 原始标题
+        natural_index: build_natural_match_index 的产物
+
+    Returns:
+        命中关键词的 display_name 列表；未命中或索引为空时返回 []
+    """
+    if not natural_index or not natural_index.get("pattern"):
+        return []
+    if not isinstance(title, str):
+        title = str(title) if title is not None else ""
+    if not title:
+        return []
+
+    pattern: re.Pattern = natural_index["pattern"]
+    keyword_to_display: Dict[str, str] = natural_index["keyword_to_display"]
+
+    seen: set = set()
+    result: List[str] = []
+    for match in pattern.finditer(title):
+        display = keyword_to_display.get(match.group(0).lower())
+        if display and display not in seen:
+            seen.add(display)
+            result.append(display)
+    return result

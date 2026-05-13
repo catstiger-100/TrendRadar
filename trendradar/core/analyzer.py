@@ -10,7 +10,12 @@
 
 from typing import Dict, List, Tuple, Optional, Callable, Set
 
-from trendradar.core.frequency import matches_word_groups, _word_matches
+from trendradar.core.frequency import (
+    matches_word_groups,
+    _word_matches,
+    build_natural_match_index,
+    extract_match_words,
+)
 from trendradar.utils.similarity import find_best_fuzzy_match
 from trendradar.utils.time import DEFAULT_TIMEZONE
 
@@ -217,6 +222,9 @@ def count_word_frequency(
     global_processed_titles: Set[str] = set()
     matched_new_count = 0
 
+    # 自然匹配索引：一次构建，全量标题复用
+    natural_match_index = build_natural_match_index(word_groups)
+
     if title_info is None:
         title_info = {}
     if new_titles is None:
@@ -389,6 +397,7 @@ def count_word_frequency(
                         "is_new": is_new,
                         "rank_timeline": rank_timeline,
                         "matched_keywords": matched_keywords,
+                        "match_words": extract_match_words(title, natural_match_index),
                     }
                 )
 
@@ -609,6 +618,9 @@ def count_rss_frequency(
     processed_urls = set()  # 用于 URL 去重
     processed_titles = set()  # 用于标题去重（不同数据源标题相同视为重复）
 
+    # 自然匹配索引：一次构建，全量条目复用
+    natural_match_index = build_natural_match_index(word_groups)
+
     # 为每个条目分配一个基于发布时间的"排名"
     # 按发布时间排序，最新的排在前面
     sorted_items = sorted(
@@ -690,6 +702,7 @@ def count_rss_frequency(
                     "url": url,
                     "mobile_url": "",
                     "is_new": is_new,
+                    "match_words": extract_match_words(title, natural_match_index),
                 }
                 word_stats[group_key]["titles"].append(title_data)
                 break  # 一个条目只匹配第一个词组

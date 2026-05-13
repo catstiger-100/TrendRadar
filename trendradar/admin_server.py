@@ -834,7 +834,7 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         if not user:
             return
         try:
-            user_keywords = user_keyword_repository.get_user_keywords(user["id"])
+            user_keywords = user_keyword_repository.get_user_keywords(user["id"], limit=20)
 
             system_keywords = _extract_system_keywords()
             seen = {uk["keyword"] for uk in user_keywords}

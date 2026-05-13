@@ -171,10 +171,10 @@ def save_articles(articles: List[Dict[str, Any]]) -> int:
                     cur.execute(
                         """
                         INSERT INTO news_articles (title, title_md5, source_name, source_url, source_id, published_at,
-                                                   category_l1, category_l2, keywords, summary, content, crawl_time, crawl_count,
+                                                   category_l1, category_l2, keywords, match_words, summary, content, crawl_time, crawl_count,
                                                    ai_interpret_status, ai_interpret_result, ai_one_line_summary)
                         VALUES (%(title)s, %(title_md5)s, %(source_name)s, %(source_url)s, %(source_id)s, %(published_at)s,
-                                %(category_l1)s, %(category_l2)s, %(keywords)s,
+                                %(category_l1)s, %(category_l2)s, %(keywords)s, %(match_words)s,
                                 %(summary)s, %(content)s, %(crawl_time)s, %(crawl_count)s,
                                 %(ai_interpret_status)s, %(ai_interpret_result)s, %(ai_one_line_summary)s)
                         ON CONFLICT (title_md5) DO UPDATE SET
@@ -183,6 +183,10 @@ def save_articles(articles: List[Dict[str, Any]]) -> int:
                             source_id = COALESCE(NULLIF(EXCLUDED.source_id, ''), news_articles.source_id),
                             summary = COALESCE(NULLIF(EXCLUDED.summary, ''), news_articles.summary),
                             content = COALESCE(NULLIF(EXCLUDED.content, ''), news_articles.content),
+                            match_words = CASE
+                                WHEN array_length(EXCLUDED.match_words, 1) > 0 THEN EXCLUDED.match_words
+                                ELSE news_articles.match_words
+                            END,
                             ai_interpret_status = CASE
                                 WHEN news_articles.ai_interpret_status = %(ai_interpret_done)s THEN news_articles.ai_interpret_status
                                 ELSE %(ai_interpret_status)s
@@ -199,6 +203,7 @@ def save_articles(articles: List[Dict[str, Any]]) -> int:
                             "category_l1": _normalize_text(article.get("category_l1")),
                             "category_l2": _normalize_text(article.get("category_l2")),
                             "keywords": _normalize_keywords(article.get("keywords")),
+                            "match_words": _normalize_keywords(article.get("match_words")),
                             "summary": _normalize_text(article.get("summary")),
                             "content": _normalize_text(article.get("content")),
                             "crawl_time": article.get("crawl_time") or datetime.now(),
@@ -320,7 +325,7 @@ def query_articles(
         cur.execute(
             f"""
             SELECT id, title, source_name, source_url, source_id, published_at,
-                   category_l1, category_l2, keywords, summary, content, crawl_time, created_at, crawl_count,
+                   category_l1, category_l2, keywords, match_words, summary, content, crawl_time, created_at, crawl_count,
                    ai_interpret_status, ai_interpret_result, ai_one_line_summary
             FROM news_articles
             {where_clause}
@@ -332,7 +337,7 @@ def query_articles(
 
         columns = [
             "id", "title", "source_name", "source_url", "source_id", "published_at",
-            "category_l1", "category_l2", "keywords", "summary", "content",
+            "category_l1", "category_l2", "keywords", "match_words", "summary", "content",
             "crawl_time", "created_at", "crawl_count",
             "ai_interpret_status", "ai_interpret_result", "ai_one_line_summary",
         ]
@@ -419,6 +424,7 @@ def ensure_news_article_columns() -> None:
             ("source_id", "ALTER TABLE news_articles ADD COLUMN source_id TEXT NOT NULL DEFAULT ''"),
             ("summary", "ALTER TABLE news_articles ADD COLUMN summary TEXT NOT NULL DEFAULT ''"),
             ("content", "ALTER TABLE news_articles ADD COLUMN content TEXT NOT NULL DEFAULT ''"),
+            ("match_words", "ALTER TABLE news_articles ADD COLUMN match_words TEXT[] NOT NULL DEFAULT '{}'"),
             ("ai_interpret_status", "ALTER TABLE news_articles ADD COLUMN ai_interpret_status TEXT NOT NULL DEFAULT '待解读'"),
             ("ai_interpret_result", "ALTER TABLE news_articles ADD COLUMN ai_interpret_result TEXT NOT NULL DEFAULT ''"),
             ("ai_one_line_summary", "ALTER TABLE news_articles ADD COLUMN ai_one_line_summary TEXT NOT NULL DEFAULT ''"),
