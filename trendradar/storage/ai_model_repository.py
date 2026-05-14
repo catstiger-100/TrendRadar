@@ -23,10 +23,11 @@ SCHEMA_LOCK_KEY = 551202605
 _schema_ready = False
 _schema_lock = threading.Lock()
 
-PROVIDER_PRESETS: Dict[str, Dict[str, str]] = {
+PROVIDER_PRESETS: Dict[str, Dict[str, Any]] = {
     # 说明：
     # - base_url 优先选择 OpenAI 兼容或 LiteLLM 常用入口
     # - model_name 提供一个适合作为默认值的推荐模型，客户可自行覆盖
+    # - requires_api_key=False 表示该 provider 不需要 API Key（如本地 Ollama）
     "OpenAI": {
         "provider_code": "openai",
         "base_url": "https://api.openai.com/v1",
@@ -75,7 +76,25 @@ PROVIDER_PRESETS: Dict[str, Dict[str, str]] = {
         "fast_model_name": "moonshot-v1-8k",
         "reasoning_model_name": "kimi-thinking-preview",
     },
+    "Ollama": {
+        # LiteLLM 的 ollama_chat/* 走 /api/chat（OpenAI 兼容），优于原生 /api/generate
+        # 默认 host.docker.internal 兼容容器内访问宿主 Ollama；Linux 纯 Docker 引擎
+        # 需要在 compose 中加 extra_hosts: ["host.docker.internal:host-gateway"]
+        "provider_code": "ollama_chat",
+        "base_url": "http://host.docker.internal:11434",
+        "fast_model_name": "qwen2.5:7b",
+        "reasoning_model_name": "qwen2.5:14b",
+        "requires_api_key": False,
+    },
 }
+
+
+def _provider_requires_api_key(provider: str) -> bool:
+    """判断该供应商是否需要 API Key（默认需要；只有显式标记 False 的才豁免）。"""
+    preset = PROVIDER_PRESETS.get((provider or "").strip())
+    if preset is None:
+        return True
+    return preset.get("requires_api_key", True) is not False
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS ai_model_settings (
@@ -371,10 +390,12 @@ def _to_litellm_config(provider: str, model_name: str, api_key: str, base_url: s
     if provider_name and model and "/" not in model:
         provider_code = PROVIDER_PRESETS.get(provider_name, {}).get("provider_code") or provider_name.lower()
         model = f"{provider_code}/{model}"
+    base = (base_url or "").strip().rstrip("/")
     return {
         "MODEL": model,
         "API_KEY": (api_key or "").strip(),
-        "API_BASE": (base_url or "").strip(),
+        "API_BASE": base,
+        "REQUIRES_API_KEY": _provider_requires_api_key(provider_name),
     }
 
 

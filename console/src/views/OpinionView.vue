@@ -18,9 +18,20 @@ import { fetchSystemConfig } from "../api/system";
 const items = ref([]);
 const total = ref(0);
 const loading = ref(false);
+const loadingMore = ref(false);
+const currentPage = ref(1);
+const opinionPageSize = ref(200);
+const opinionMaxLoadCount = ref(2000);
+const reachedCap = ref(false); // 已达累计上限
 const sources = ref([]);
 
 const keyword = ref("");
+
+// el-select clearable 清空时会把 v-model 设为 undefined；兜底归一成 ""
+// 避免下游 .trim() 之类字符串操作报错
+watch(keyword, (v) => {
+  if (v == null) keyword.value = "";
+});
 const selectedDate = ref("");
 const selectedSource = ref("");
 const favoriteOnly = ref(false);
@@ -53,6 +64,8 @@ async function loadCrawlInterval() {
   try {
     const data = await fetchSystemConfig();
     crawlIntervalMinutes.value = data.crawl_interval_minutes || 3;
+    if (data.opinion_page_size) opinionPageSize.value = Number(data.opinion_page_size) || 200;
+    if (data.opinion_max_load_count) opinionMaxLoadCount.value = Number(data.opinion_max_load_count) || 2000;
   } catch {
     // 获取失败使用默认值
   }
@@ -62,6 +75,7 @@ const TABLE_FONT_STORAGE_KEY = "trendradar:opinion-table-font-size";
 const LAYOUT_MODE_STORAGE_KEY = "trendradar:opinion-layout-mode";
 const COLUMN_WIDTH_STORAGE_KEY = "trendradar:opinion-column-widths";
 const COLUMN_MIN_WIDTHS = {
+  序号: 56,
   时间: 136,
   新闻标题: 420,
   匹配关键词: 180,
@@ -467,14 +481,32 @@ async function loadKeywordOptions() {
   }
 }
 
-async function loadNews() {
-  if (loading.value) return;
-  loading.value = true;
+async function loadNews({ append = false } = {}) {
+  // 首次加载：锁 loading；追加加载：锁 loadingMore
+  if (append) {
+    if (loadingMore.value || reachedCap.value) return;
+    if (items.value.length >= total.value && total.value > 0) return;
+    if (items.value.length >= opinionMaxLoadCount.value) {
+      reachedCap.value = true;
+      return;
+    }
+    loadingMore.value = true;
+  } else {
+    if (loading.value) return;
+    loading.value = true;
+    currentPage.value = 1;
+    reachedCap.value = false;
+  }
   try {
-    const params = { page: 1, page_size: 200 };
-    if (keyword.value.trim()) {
-      params.keyword = keyword.value.trim();
-      highlightKeyword.value = keyword.value.trim();
+    const pageSize = Math.max(10, Number(opinionPageSize.value) || 200);
+    const params = {
+      page: append ? currentPage.value + 1 : 1,
+      page_size: pageSize,
+    };
+    const kw = (keyword.value ?? "").toString().trim();
+    if (kw) {
+      params.keyword = kw;
+      highlightKeyword.value = kw;
     } else {
       highlightKeyword.value = "";
     }
@@ -483,14 +515,95 @@ async function loadNews() {
     if (favoriteOnly.value) params.favorite_only = true;
 
     const data = await fetchNews(params);
-    items.value = data.items || [];
+    const newItems = data.items || [];
+    if (append) {
+      items.value = items.value.concat(newItems);
+      currentPage.value = params.page;
+    } else {
+      items.value = newItems;
+      currentPage.value = 1;
+      // 滚回顶部（下次渲染完再做）
+      nextTick(() => {
+        const board = document.querySelector(".opinion-card-board");
+        if (board) board.scrollTop = 0;
+        const tableScroll =
+          document.querySelector(".opinion-table .el-scrollbar__wrap") ||
+          document.querySelector(".opinion-table .el-table__body-wrapper");
+        if (tableScroll) tableScroll.scrollTop = 0;
+      });
+    }
     total.value = data.total || 0;
     now.value = Date.now();
+
+    // 命中上限判定
+    if (items.value.length >= opinionMaxLoadCount.value) {
+      reachedCap.value = true;
+    }
   } catch (e) {
     ElMessage.error(e.message || "加载失败");
   } finally {
-    loading.value = false;
+    if (append) {
+      loadingMore.value = false;
+    } else {
+      loading.value = false;
+    }
   }
+}
+
+function onScrollNearBottom() {
+  if (loading.value || loadingMore.value || reachedCap.value) return;
+  if (items.value.length >= total.value && total.value > 0) return;
+  loadNews({ append: true });
+}
+
+// 滚动宿主：
+//   - 卡片视图：.opinion-card-board 自身是 overflow:auto 容器
+//   - 表格视图：Element Plus 2.3+ 在 el-table 内嵌了 el-scrollbar，
+//       真正滚动的是 .el-scrollbar__wrap；老版本直接是 .el-table__body-wrapper。
+//       两者都监听，避免漏挂。
+const _scrollHandlers = new WeakMap();
+
+function attachScrollListener(element) {
+  if (!element || _scrollHandlers.has(element)) return;
+  const handler = () => {
+    const threshold = 200;
+    if (element.scrollTop + element.clientHeight + threshold >= element.scrollHeight) {
+      onScrollNearBottom();
+    }
+  };
+  element.addEventListener("scroll", handler, { passive: true });
+  _scrollHandlers.set(element, handler);
+}
+
+function detachAllScrollListeners() {
+  document
+    .querySelectorAll(
+      ".opinion-table .el-table__body-wrapper, .opinion-table .el-scrollbar__wrap, .opinion-card-board"
+    )
+    .forEach((el) => {
+      const handler = _scrollHandlers.get(el);
+      if (handler) {
+        el.removeEventListener("scroll", handler);
+        _scrollHandlers.delete(el);
+      }
+    });
+}
+
+async function bindScrollForCurrentLayout() {
+  // el-table 首次渲染后 .el-scrollbar__wrap 才存在，保险起见等两轮微任务
+  await nextTick();
+  await nextTick();
+
+  // 卡片视图
+  document.querySelectorAll(".opinion-card-board").forEach((el) => attachScrollListener(el));
+
+  // 表格视图：优先 el-scrollbar__wrap，同时兜底 body-wrapper
+  document
+    .querySelectorAll(".opinion-table .el-scrollbar__wrap")
+    .forEach((el) => attachScrollListener(el));
+  document
+    .querySelectorAll(".opinion-table .el-table__body-wrapper")
+    .forEach((el) => attachScrollListener(el));
 }
 
 function onSearch() {
@@ -627,6 +740,12 @@ onMounted(async () => {
   startCountdown();
   loadNews();
   setupResizeHandles();
+  await bindScrollForCurrentLayout();
+});
+
+watch(layoutMode, async () => {
+  // 切换布局时，新容器首次渲染后再挂一次（旧监听仍有效，但无害）
+  await bindScrollForCurrentLayout();
 });
 
 onBeforeUnmount(() => {
@@ -638,6 +757,7 @@ onBeforeUnmount(() => {
     clearInterval(timer);
   }
   _interpretPolls.clear();
+  detachAllScrollListeners();
 });
 </script>
 
@@ -719,6 +839,12 @@ onBeforeUnmount(() => {
         <div class="opinion-toolbar__right">
           <span class="opinion-meta" :key="now">
             <span class="opinion-meta__count">{{ total }}</span> 条资讯
+            <span class="opinion-meta__loaded">
+              已加载 {{ items.length }}{{ reachedCap ? '（已达上限）' : '' }}
+            </span>
+            <el-icon v-if="loadingMore" class="opinion-meta__loading" :size="12">
+              <Loading />
+            </el-icon>
           </span>
           <div class="opinion-view-tools">
             <div class="opinion-layout-toggle">
@@ -783,6 +909,13 @@ onBeforeUnmount(() => {
           stripe
           height="100%"
         >
+          <el-table-column
+            type="index"
+            label="序号"
+            :width="colWidth('序号', 64)"
+            align="center"
+            class-name="opinion-index-cell"
+          />
           <el-table-column prop="published_at" label="时间" :width="colWidth('时间', 150)" align="center">
             <template #default="{ row }">
               <span class="opinion-time">{{ formatTime(row.published_at) }}</span>
@@ -1282,6 +1415,23 @@ onBeforeUnmount(() => {
 
 :global(.theme--light .opinion-meta__count) {
   text-shadow: none;
+}
+
+.opinion-meta__loaded {
+  margin-left: 8px;
+  font-size: 12px;
+  opacity: 0.72;
+}
+
+.opinion-meta__loading {
+  margin-left: 6px;
+  color: var(--console-cyan);
+  animation: opinion-meta-spin 1s linear infinite;
+  vertical-align: middle;
+}
+
+@keyframes opinion-meta-spin {
+  to { transform: rotate(360deg); }
 }
 
 .opinion-countdown {

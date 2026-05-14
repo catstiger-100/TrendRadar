@@ -238,6 +238,180 @@ def _json_serialize(obj):
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
+_EMAIL_SCHEDULE_OPTIONS = [
+    "",
+    "0 9 * * *",
+    "0 9,13,15 * * *",
+    "0 9,12,18 * * *",
+    "0 9,12,15,18 * * *",
+    "0 8,12,18,22 * * *",
+]
+
+_EMAIL_SCHEDULE_LABELS = {
+    "": "不启用",
+    "0 9 * * *": "每天早晨 9:00",
+    "0 9,13,15 * * *": "每天 9:00、13:00、15:00",
+    "0 9,12,18 * * *": "每天 9:00、12:00、18:00",
+    "0 9,12,15,18 * * *": "每天 9:00、12:00、15:00、18:00",
+    "0 8,12,18,22 * * *": "每天 8:00、12:00、18:00、22:00",
+}
+
+
+def _apply_config_updates(content: str, updates: dict) -> str:
+    """
+    就地更新 config.yaml 中若干标量字段的值，保留注释/缩进。
+
+    - crawl_interval_minutes 位于 advanced.crawler 下
+    - opinion_page_size / opinion_max_load_count 位于 advanced.console 下，若块不存在则在文件末尾补齐
+    - email.* 位于 notification.channels.email 下
+    """
+    # advanced.crawler.crawl_interval_minutes
+    if "crawl_interval_minutes" in updates:
+        interval = updates["crawl_interval_minutes"]
+        if re.search(r"^\s*crawl_interval_minutes\s*:\s*\d+", content, flags=re.MULTILINE):
+            content = re.sub(
+                r"^(\s*crawl_interval_minutes\s*:\s*)\d+",
+                lambda m: f"{m.group(1)}{interval}",
+                content,
+                flags=re.MULTILINE,
+            )
+        else:
+            content = re.sub(
+                r"(default_proxy:\s*\"[^\"]*\")\n",
+                f"\\1\n    crawl_interval_minutes: {interval}\n",
+                content,
+                count=1,
+            )
+
+    # advanced.console.opinion_*
+    console_keys = ("opinion_page_size", "opinion_max_load_count")
+    if any(k in updates for k in console_keys):
+        # 先尝试替换已有键
+        for key in console_keys:
+            if key not in updates:
+                continue
+            value = updates[key]
+            pattern = rf"^(\s*{key}\s*:\s*)\d+"
+            if re.search(pattern, content, flags=re.MULTILINE):
+                content = re.sub(
+                    pattern,
+                    lambda m, v=value: f"{m.group(1)}{v}",
+                    content,
+                    flags=re.MULTILINE,
+                )
+
+        # 若 console 块不存在，则在 advanced 块末尾新增
+        if not re.search(r"^\s*console\s*:", content, flags=re.MULTILINE):
+            page_size = updates.get("opinion_page_size", 200)
+            max_load = updates.get("opinion_max_load_count", 2000)
+            block = (
+                "\n  # 控制台资讯列表参数\n"
+                "  console:\n"
+                f"    opinion_page_size: {page_size}\n"
+                f"    opinion_max_load_count: {max_load}\n"
+            )
+            # 在 advanced 块末尾（即文件末尾或下一个顶级键前）插入
+            if not content.endswith("\n"):
+                content += "\n"
+            content += block
+        else:
+            # console 已有，但某个子键缺失则补齐
+            for key in console_keys:
+                if key not in updates:
+                    continue
+                if re.search(rf"^\s*{key}\s*:", content, flags=re.MULTILINE):
+                    continue
+                value = updates[key]
+                content = re.sub(
+                    r"(^\s*console\s*:[^\n]*\n)",
+                    f"\\1    {key}: {value}\n",
+                    content,
+                    count=1,
+                    flags=re.MULTILINE,
+                )
+
+    # notification.channels.email.* — 分段替换，先定位 email: 块再替换，避免误中顶层 schedule
+    email_keys = ("email_from", "email_password", "email_to", "email_smtp_server", "email_smtp_port", "email_schedule")
+    email_yaml_keys = {
+        "email_from": "from",
+        "email_password": "password",
+        "email_to": "to",
+        "email_smtp_server": "smtp_server",
+        "email_smtp_port": "smtp_port",
+        "email_schedule": "schedule",
+    }
+    email_block_match = re.search(r'^ {4}email\s*:\s*$', content, flags=re.MULTILINE)
+    if email_block_match:
+        email_seg_start = email_block_match.end()
+        next_email_block = re.search(r'^ {4}\w', content[email_seg_start:], flags=re.MULTILINE)
+        email_seg_end = email_seg_start + next_email_block.start() if next_email_block else len(content)
+        email_segment = content[email_seg_start:email_seg_end]
+        for update_key in email_keys:
+            if update_key not in updates:
+                continue
+            yaml_key = email_yaml_keys[update_key]
+            value = updates[update_key]
+            quoted = f'"{value}"'
+            pattern = rf'^(\s*{yaml_key}\s*:\s*)(".*?"|\'.*?\'|[^\s#][^\n]*|)'
+            email_segment = re.sub(
+                pattern,
+                lambda m, q=quoted: f"{m.group(1)}{q}",
+                email_segment,
+                count=1,
+                flags=re.MULTILINE,
+            )
+        content = content[:email_seg_start] + email_segment + content[email_seg_end:]
+
+    # notification.channels.feishu/dingtalk/wework — 只有 webhook_url，schedule 已合并为顶层字段
+    _channel_fields = {
+        "feishu_webhook_url":   ("feishu",   "webhook_url"),
+        "dingtalk_webhook_url": ("dingtalk", "webhook_url"),
+        "wework_webhook_url":   ("wework",   "webhook_url"),
+    }
+    for update_key, (channel, yaml_key) in _channel_fields.items():
+        if update_key not in updates:
+            continue
+        value = updates[update_key]
+        quoted = f'"{value}"'
+        channel_match = re.search(rf'^ {{4}}{channel}\s*:\s*$', content, flags=re.MULTILINE)
+        if not channel_match:
+            continue
+        seg_start = channel_match.end()
+        next_block = re.search(r'^ {4}\w', content[seg_start:], flags=re.MULTILINE)
+        seg_end = seg_start + next_block.start() if next_block else len(content)
+        segment = content[seg_start:seg_end]
+        pattern = rf'^(\s*{yaml_key}\s*:\s*)(".*?"|\'.*?\'|[^\s#][^\n]*|)'
+        new_segment = re.sub(
+            pattern,
+            lambda m, q=quoted: f"{m.group(1)}{q}",
+            segment,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        content = content[:seg_start] + new_segment + content[seg_end:]
+
+    # notification.notification_schedule — 顶层字段，在 notification: 块内
+    if "notification_schedule" in updates:
+        value = updates["notification_schedule"]
+        quoted = f'"{value}"'
+        notif_match = re.search(r'^notification\s*:\s*$', content, flags=re.MULTILINE)
+        if notif_match:
+            ns_start = notif_match.end()
+            # 找下一个顶层 key（无缩进）
+            next_top = re.search(r'^\w', content[ns_start:], flags=re.MULTILINE)
+            ns_end = ns_start + next_top.start() if next_top else len(content)
+            ns_segment = content[ns_start:ns_end]
+            pattern = r'^(\s*notification_schedule\s*:\s*)(".*?"|\'.*?\'|[^\s#][^\n]*|)'
+            ns_segment = re.sub(
+                pattern,
+                lambda m, q=quoted: f"{m.group(1)}{q}",
+                ns_segment,
+                count=1,
+                flags=re.MULTILINE,
+            )
+            content = content[:ns_start] + ns_segment + content[ns_end:]
+
+    return content
 def _extract_system_keywords():
     """从 frequency_words.txt 中提取所有系统关键词（去重）。"""
     if not FREQUENCY_WORDS_PATH.exists():
@@ -1551,20 +1725,67 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
         try:
             config_path = CONFIG_DIR / "config.yaml"
             interval = 0
+            page_size = 200
+            max_load_count = 2000
+            email_from = ""
+            email_password = ""
+            email_to = ""
+            email_smtp_server = ""
+            email_smtp_port = ""
+            email_schedule = ""
             if config_path.exists():
                 with open(config_path, "r", encoding="utf-8") as f:
-                    config = yaml.safe_load(f)
+                    config = yaml.safe_load(f) or {}
+                advanced = config.get("advanced", {}) or {}
                 interval = (
-                    config.get("advanced", {})
-                    .get("crawler", {})
-                    .get("crawl_interval_minutes", 0)
+                    advanced.get("crawler", {}).get("crawl_interval_minutes", 0)
                 ) or 0
+                console_cfg = advanced.get("console", {}) or {}
+                page_size = int(console_cfg.get("opinion_page_size", page_size) or page_size)
+                max_load_count = int(
+                    console_cfg.get("opinion_max_load_count", max_load_count) or max_load_count
+                )
+                email_cfg = (
+                    config.get("notification", {}) or {}
+                ).get("channels", {}).get("email", {}) or {}
+                email_from = email_cfg.get("from", "") or ""
+                email_password = email_cfg.get("password", "") or ""
+                email_to = email_cfg.get("to", "") or ""
+                email_smtp_server = email_cfg.get("smtp_server", "") or ""
+                email_smtp_port = str(email_cfg.get("smtp_port", "") or "")
+                email_schedule = email_cfg.get("schedule", "") or ""
+                notif_cfg = config.get("notification", {}) or {}
+                channels_cfg = notif_cfg.get("channels", {}) or {}
+                feishu_cfg = channels_cfg.get("feishu", {}) or {}
+                dingtalk_cfg = channels_cfg.get("dingtalk", {}) or {}
+                wework_cfg = channels_cfg.get("wework", {}) or {}
+                notification_schedule = notif_cfg.get("notification_schedule", "") or ""
             self._send_json(
                 200,
                 {
                     "crawl_interval_minutes": int(interval),
                     "cron_schedule": os.environ.get("CRON_SCHEDULE", "*/30 * * * *"),
                     "available_intervals": [1, 3, 5, 10, 15, 30],
+                    "opinion_page_size": page_size,
+                    "opinion_max_load_count": max_load_count,
+                    "email_from": email_from,
+                    "email_password": email_password,
+                    "email_to": email_to,
+                    "email_smtp_server": email_smtp_server,
+                    "email_smtp_port": email_smtp_port,
+                    "email_schedule": email_schedule,
+                    "email_schedule_options": [
+                        {"label": _EMAIL_SCHEDULE_LABELS[v], "value": v}
+                        for v in _EMAIL_SCHEDULE_OPTIONS
+                    ],
+                    "feishu_webhook_url": feishu_cfg.get("webhook_url", "") or "",
+                    "dingtalk_webhook_url": dingtalk_cfg.get("webhook_url", "") or "",
+                    "wework_webhook_url": wework_cfg.get("webhook_url", "") or "",
+                    "notification_schedule": notification_schedule,
+                    "notification_schedule_options": [
+                        {"label": _EMAIL_SCHEDULE_LABELS[v], "value": v}
+                        for v in _EMAIL_SCHEDULE_OPTIONS
+                    ],
                 },
             )
         except Exception as exc:
@@ -1576,36 +1797,100 @@ class AdminRequestHandler(SimpleHTTPRequestHandler):
             return
         try:
             payload = self._read_json_body()
-            interval = int(payload.get("crawl_interval_minutes", 0))
-            if interval not in (0, 1, 3, 5, 10, 15, 30):
-                raise ValueError("抓取频率必须是 0/1/3/5/10/15/30 之一")
+
+            updates = {}  # 字段名 -> 新值（int）
+            messages = []
+
+            if "crawl_interval_minutes" in payload:
+                interval = int(payload.get("crawl_interval_minutes", 0))
+                if interval not in (0, 1, 3, 5, 10, 15, 30):
+                    raise ValueError("抓取频率必须是 0/1/3/5/10/15/30 之一")
+                updates["crawl_interval_minutes"] = interval
+                messages.append(
+                    f"抓取频率已更新为 {interval} 分钟" if interval > 0 else "已切换为外部 cron 频率"
+                )
+
+            page_size_raw = payload.get("opinion_page_size")
+            max_load_raw = payload.get("opinion_max_load_count")
+            if page_size_raw is not None or max_load_raw is not None:
+                page_size = int(page_size_raw) if page_size_raw is not None else 200
+                max_load = int(max_load_raw) if max_load_raw is not None else 2000
+                if not (10 <= page_size <= 500):
+                    raise ValueError("单次加载条数必须在 10-500 之间")
+                if not (10 <= max_load <= 10000):
+                    raise ValueError("最多加载条数必须在 10-10000 之间")
+                if max_load < page_size:
+                    raise ValueError("最多加载条数不能小于单次加载条数")
+                # 向上对齐到 page_size 的整数倍，避免最后一页越界
+                if max_load % page_size != 0:
+                    max_load = (max_load // page_size + 1) * page_size
+                    max_load = min(max_load, 10000)
+                updates["opinion_page_size"] = page_size
+                updates["opinion_max_load_count"] = max_load
+                messages.append(f"资讯列表加载已更新：每次 {page_size} 条，最多 {max_load} 条")
+
+            # 邮件配置字段
+            email_fields = ("email_from", "email_password", "email_to", "email_smtp_server", "email_smtp_port", "email_schedule")
+            has_email_update = any(k in payload for k in email_fields)
+            if has_email_update:
+                if "email_from" in payload:
+                    v = str(payload["email_from"]).strip()
+                    if v and "@" not in v:
+                        raise ValueError("发件人邮箱格式不正确")
+                    updates["email_from"] = v
+                if "email_password" in payload:
+                    updates["email_password"] = str(payload["email_password"])
+                if "email_to" in payload:
+                    updates["email_to"] = str(payload["email_to"]).strip()
+                if "email_smtp_server" in payload:
+                    updates["email_smtp_server"] = str(payload["email_smtp_server"]).strip()
+                if "email_smtp_port" in payload:
+                    port_raw = payload["email_smtp_port"]
+                    if port_raw == "" or port_raw is None:
+                        updates["email_smtp_port"] = ""
+                    else:
+                        port = int(port_raw)
+                        if not (1 <= port <= 65535):
+                            raise ValueError("SMTP 端口必须在 1-65535 之间")
+                        updates["email_smtp_port"] = str(port)
+                if "email_schedule" in payload:
+                    schedule_val = str(payload["email_schedule"]).strip()
+                    if schedule_val not in _EMAIL_SCHEDULE_OPTIONS:
+                        raise ValueError("发送时间选项无效")
+                    updates["email_schedule"] = schedule_val
+                messages.append("邮件配置已更新")
+
+            # 飞书/钉钉/企业微信 webhook_url（共用 notification_schedule）
+            _notif_channels = ("feishu", "dingtalk", "wework")
+            _notif_names = {"feishu": "飞书", "dingtalk": "钉钉", "wework": "企业微信"}
+            notif_changed = False
+            for ch in _notif_channels:
+                if f"{ch}_webhook_url" in payload:
+                    updates[f"{ch}_webhook_url"] = str(payload[f"{ch}_webhook_url"]).strip()
+                    notif_changed = True
+            if "notification_schedule" in payload:
+                sv = str(payload["notification_schedule"]).strip()
+                if sv not in _EMAIL_SCHEDULE_OPTIONS:
+                    raise ValueError("推送渠道发送时间选项无效")
+                updates["notification_schedule"] = sv
+                notif_changed = True
+            if notif_changed:
+                messages.append("推送渠道配置已更新")
+
+            if not updates:
+                raise ValueError("没有需要更新的字段")
 
             config_path = CONFIG_DIR / "config.yaml"
             if not config_path.exists():
                 raise RuntimeError("config.yaml 不存在")
 
             content = config_path.read_text(encoding="utf-8")
-            if "crawl_interval_minutes" in content:
-                content = re.sub(
-                    r"crawl_interval_minutes:\s*\d+",
-                    f"crawl_interval_minutes: {interval}",
-                    content,
-                )
-            else:
-                content = re.sub(
-                    r"(default_proxy:\s*\"[^\"]*\")\n",
-                    f"\\1\n    crawl_interval_minutes: {interval}",
-                    content,
-                )
+            content = _apply_config_updates(content, updates)
             config_path.write_text(content, encoding="utf-8")
 
-            self._send_json(
-                200,
-                {
-                    "crawl_interval_minutes": interval,
-                    "message": f"抓取频率已更新为 {interval} 分钟" if interval > 0 else "已切换为外部 cron 频率",
-                },
-            )
+            response = {"message": "；".join(messages)}
+            response.update(updates)
+            self._send_json(200, response)
         except ValueError as exc:
             self._send_json(400, {"error": str(exc)})
         except Exception as exc:
@@ -1656,6 +1941,151 @@ def run(host="0.0.0.0", port=8080):
         daemon=True,
     )
     sit_thread.start()
+
+    # 启动邮件定时发送线程
+    def _email_schedule_loop():
+        import time as _time
+        last_sent_minute = None
+        _time.sleep(60)  # 启动延迟，等待服务就绪
+        while True:
+            _time.sleep(30)
+            try:
+                config_path = CONFIG_DIR / "config.yaml"
+                if not config_path.exists():
+                    continue
+                with open(config_path, "r", encoding="utf-8") as _f:
+                    _cfg = yaml.safe_load(_f) or {}
+                email_cfg = (
+                    _cfg.get("notification", {}) or {}
+                ).get("channels", {}).get("email", {}) or {}
+                schedule_expr = email_cfg.get("schedule", "") or ""
+                if not schedule_expr:
+                    continue
+                # 解析 cron 小时字段（格式固定为 "0 H,H,... * * *"）
+                parts = schedule_expr.split()
+                if len(parts) != 5 or parts[0] != "0":
+                    continue
+                try:
+                    trigger_hours = [int(h) for h in parts[1].split(",")]
+                except ValueError:
+                    continue
+                now = datetime.now()
+                current_minute = now.replace(second=0, microsecond=0)
+                if current_minute == last_sent_minute:
+                    continue
+                if now.hour in trigger_hours and now.minute == 0:
+                    last_sent_minute = current_minute
+                    html_path = OUTPUT_DIR / "index.html"
+                    if not html_path.exists():
+                        print(f"[邮件调度] index.html 不存在，跳过本次发送")
+                        continue
+                    from_email = email_cfg.get("from", "") or ""
+                    password = email_cfg.get("password", "") or ""
+                    to_email = email_cfg.get("to", "") or ""
+                    smtp_server = email_cfg.get("smtp_server", "") or ""
+                    smtp_port = email_cfg.get("smtp_port", "") or ""
+                    if not from_email or not password or not to_email:
+                        print(f"[邮件调度] 邮件配置不完整，跳过本次发送")
+                        continue
+                    print(f"[邮件调度] 触发定时发送 ({now.strftime('%H:%M')})")
+                    try:
+                        import hashlib as _hashlib
+                        from trendradar.notification.senders import send_to_email
+                        from trendradar.storage import email_log_repository as _email_log
+                        html_content = html_path.read_bytes()
+                        content_md5 = _hashlib.md5(html_content).hexdigest()
+                        if _email_log.has_been_sent(content_md5):
+                            print(f"[邮件调度] 内容未变化（md5={content_md5[:8]}…），跳过发送")
+                            continue
+                        send_to_email(
+                            from_email=from_email,
+                            password=password,
+                            to_email=to_email,
+                            report_type="定时报告",
+                            html_file_path=str(html_path),
+                            custom_smtp_server=smtp_server or None,
+                            custom_smtp_port=int(smtp_port) if smtp_port else None,
+                        )
+                        _email_log.record_send(from_email, to_email, content_md5)
+                    except Exception as _exc:
+                        print(f"[邮件调度] 发送失败: {_exc}")
+            except Exception as _exc:
+                print(f"[邮件调度] 调度循环异常: {_exc}")
+
+    email_thread = threading.Thread(
+        target=_email_schedule_loop,
+        name="email-scheduler",
+        daemon=True,
+    )
+    email_thread.start()
+
+    # 启动飞书/钉钉/企业微信定时推送线程
+    def _notification_schedule_loop():
+        import time as _time
+        import hashlib as _hashlib
+        last_sent_minute: dict = {}  # channel -> last triggered datetime
+        _time.sleep(60)
+        while True:
+            _time.sleep(30)
+            try:
+                config_path = CONFIG_DIR / "config.yaml"
+                if not config_path.exists():
+                    continue
+                with open(config_path, "r", encoding="utf-8") as _f:
+                    _cfg = yaml.safe_load(_f) or {}
+                notif_cfg = _cfg.get("notification", {}) or {}
+                channels_cfg = notif_cfg.get("channels", {}) or {}
+                schedule_expr = notif_cfg.get("notification_schedule", "") or ""
+                now = datetime.now()
+                current_minute = now.replace(second=0, microsecond=0)
+
+                if not schedule_expr:
+                    continue
+                parts = schedule_expr.split()
+                if len(parts) != 5 or parts[0] != "0":
+                    continue
+                try:
+                    trigger_hours = [int(h) for h in parts[1].split(",")]
+                except ValueError:
+                    continue
+                if now.hour not in trigger_hours or now.minute != 0:
+                    continue
+
+                for channel in ("feishu", "dingtalk", "wework"):
+                    ch_cfg = channels_cfg.get(channel, {}) or {}
+                    webhook_url = ch_cfg.get("webhook_url", "") or ""
+                    if not webhook_url:
+                        continue
+                    if last_sent_minute.get(channel) == current_minute:
+                        continue
+                    last_sent_minute[channel] = current_minute
+                    html_path = OUTPUT_DIR / "index.html"
+                    if not html_path.exists():
+                        print(f"[通知调度/{channel}] index.html 不存在，跳过")
+                        continue
+                    try:
+                        from trendradar.storage import notification_log_repository as _notif_log
+                        content_md5 = _hashlib.md5(html_path.read_bytes()).hexdigest()
+                        if _notif_log.has_been_sent(channel, content_md5):
+                            print(f"[通知调度/{channel}] 内容未变化（md5={content_md5[:8]}…），跳过")
+                            continue
+                        print(f"[通知调度/{channel}] 触发定时推送 ({now.strftime('%H:%M')})")
+                        from trendradar.__main__ import NewsAnalyzer
+                        from trendradar.core import load_config as _load_config
+                        analyzer = NewsAnalyzer(config=_load_config())
+                        analyzer.run()
+                        _notif_log.record_send(channel, webhook_url, content_md5)
+                    except Exception as _exc:
+                        print(f"[通知调度/{channel}] 推送失败: {_exc}")
+            except Exception as _exc:
+                print(f"[通知调度] 调度循环异常: {_exc}")
+
+    notif_thread = threading.Thread(
+        target=_notification_schedule_loop,
+        name="notification-scheduler",
+        daemon=True,
+    )
+    notif_thread.start()
 
     server = ThreadingHTTPServer((host, port), AdminRequestHandler)
     print(f"TrendRadar 管理服务已启动: http://{host}:{port}")

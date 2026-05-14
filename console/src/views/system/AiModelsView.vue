@@ -30,6 +30,16 @@ const form = reactive({
 
 const providerOptions = computed(() => Object.keys(providerPresets.value || {}));
 
+function providerRequiresApiKey(provider) {
+  const preset = providerPresets.value?.[provider];
+  if (!preset) return true;
+  // 后端用 requires_api_key=false 标记本地 Ollama 等无需 key 的供应商
+  return preset.requires_api_key !== false;
+}
+
+const fastKeyRequired = computed(() => providerRequiresApiKey(form.fast_provider));
+const reasoningKeyRequired = computed(() => providerRequiresApiKey(form.reasoning_provider));
+
 function applyPreset(prefix) {
   const provider = form[`${prefix}_provider`];
   const preset = providerPresets.value?.[provider];
@@ -160,8 +170,13 @@ loadData();
             <el-form-item label="BASE URL">
               <el-input v-model="form.fast_base_url" placeholder="选择供应商后会自动填充，可手动修改" />
             </el-form-item>
-            <el-form-item label="API_KEY">
-              <el-input v-model="form.fast_api_key" type="password" show-password placeholder="请输入快速模型 API Key" />
+            <el-form-item :label="fastKeyRequired ? 'API_KEY' : 'API_KEY（可选）'">
+              <el-input
+                v-model="form.fast_api_key"
+                type="password"
+                show-password
+                :placeholder="fastKeyRequired ? '请输入快速模型 API Key' : '本地模型无需 API Key，可留空'"
+              />
             </el-form-item>
           </el-form>
         </section>
@@ -192,8 +207,13 @@ loadData();
             <el-form-item label="BASE URL">
               <el-input v-model="form.reasoning_base_url" placeholder="选择供应商后会自动填充，可手动修改" />
             </el-form-item>
-            <el-form-item label="API_KEY">
-              <el-input v-model="form.reasoning_api_key" type="password" show-password placeholder="请输入深度模型 API Key" />
+            <el-form-item :label="reasoningKeyRequired ? 'API_KEY' : 'API_KEY（可选）'">
+              <el-input
+                v-model="form.reasoning_api_key"
+                type="password"
+                show-password
+                :placeholder="reasoningKeyRequired ? '请输入深度模型 API Key' : '本地模型无需 API Key，可留空'"
+              />
             </el-form-item>
           </el-form>
         </section>

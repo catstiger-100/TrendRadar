@@ -175,9 +175,13 @@ def run_situation_analysis() -> Dict[str, Any]:
         config = load_config()
         ai_config = config.get("AI", {})
 
-    if not ai_config.get("MODEL") or not ai_config.get("API_KEY"):
+    if not ai_config.get("MODEL"):
         logger.info("态势分析：未配置 AI 模型，跳过")
         return {"success": False, "error": "未配置 AI 模型"}
+    # 本地 provider（如 Ollama）允许无 API Key
+    if ai_config.get("REQUIRES_API_KEY", True) is not False and not ai_config.get("API_KEY"):
+        logger.info("态势分析：未配置 AI API Key，跳过")
+        return {"success": False, "error": "未配置 AI API Key"}
 
     # 加载提示词
     system_prompt, user_template = _load_prompt_template()

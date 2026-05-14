@@ -29,6 +29,7 @@ class AIClient:
                 - TIMEOUT: 请求超时时间（秒）
                 - NUM_RETRIES: 重试次数（可选）
                 - FALLBACK_MODELS: 备用模型列表（可选）
+            - REQUIRES_API_KEY: 该 provider 是否需要 API Key（默认 True；如 Ollama 本地可置 False）
         """
         self.model = config.get("MODEL", "deepseek/deepseek-chat")
         self.api_key = config.get("API_KEY") or os.environ.get("AI_API_KEY", "")
@@ -38,6 +39,7 @@ class AIClient:
         self.timeout = config.get("TIMEOUT", 120)
         self.num_retries = config.get("NUM_RETRIES", 2)
         self.fallback_models = config.get("FALLBACK_MODELS", [])
+        self.requires_api_key = config.get("REQUIRES_API_KEY", True) is not False
 
     def chat(
         self,
@@ -66,7 +68,7 @@ class AIClient:
             "num_retries": kwargs.get("num_retries", self.num_retries),
         }
 
-        # 添加 API Key
+        # 添加 API Key（仅当提供了 key 时传；本地 Ollama 等可不传）
         if self.api_key:
             params["api_key"] = self.api_key
 
@@ -88,6 +90,14 @@ class AIClient:
             if key not in params:
                 params[key] = value
 
+        # Ollama 默认 num_ctx 通常仅 2048，prompt 一旦超长会被静默截断导致空响应。
+        # 给本地 Ollama 注入更大的上下文窗口（调用者未显式指定时生效）。
+        if (self.model or "").startswith(("ollama/", "ollama_chat/")) and "num_ctx" not in params:
+            try:
+                params["num_ctx"] = int(os.environ.get("OLLAMA_NUM_CTX", "8192") or 8192)
+            except ValueError:
+                params["num_ctx"] = 8192
+
         # 调用 LiteLLM
         response = completion(**params)
 
@@ -104,8 +114,9 @@ class AIClient:
         if not self.model:
             return False, "未配置 AI 模型（model）"
 
-        if not self.api_key:
-            return False, "未配置 AI API Key，请在 config.yaml 或环境变量 AI_API_KEY 中设置"
+        # 部分 provider（如本地 Ollama）不需要 API Key
+        if self.requires_api_key and not self.api_key:
+            return False, "未配置 AI API Key，请在配置或环境变量 AI_API_KEY 中设置"
 
         # 验证模型格式（应该包含 provider/model）
         if "/" not in self.model:

@@ -202,26 +202,9 @@ class NotificationDispatcher:
             report_data, rss_items, rss_new_items
         )
 
-        # 飞书
-        if self.config.get("FEISHU_WEBHOOK_URL"):
-            results["feishu"] = self._send_feishu(
-                report_data, report_type, update_info, proxy_url, mode, rss_items, rss_new_items,
-                ai_analysis, display_regions, standalone_data
-            )
-
-        # 钉钉
-        if self.config.get("DINGTALK_WEBHOOK_URL"):
-            results["dingtalk"] = self._send_dingtalk(
-                report_data, report_type, update_info, proxy_url, mode, rss_items, rss_new_items,
-                ai_analysis, display_regions, standalone_data
-            )
-
-        # 企业微信
-        if self.config.get("WEWORK_WEBHOOK_URL"):
-            results["wework"] = self._send_wework(
-                report_data, report_type, update_info, proxy_url, mode, rss_items, rss_new_items,
-                ai_analysis, display_regions, standalone_data
-            )
+        # 飞书 — 已改为由系统设置中的定时调度统一管理，此处不再触发
+        # 钉钉 — 已改为由系统设置中的定时调度统一管理，此处不再触发
+        # 企业微信 — 已改为由系统设置中的定时调度统一管理，此处不再触发
 
         # Telegram（需要配对验证）
         if self.config.get("TELEGRAM_BOT_TOKEN") and self.config.get("TELEGRAM_CHAT_ID"):
@@ -258,13 +241,7 @@ class NotificationDispatcher:
                 ai_analysis, display_regions, standalone_data
             )
 
-        # 邮件（保持原有逻辑，已支持多收件人，AI 分析已嵌入 HTML）
-        if (
-            self.config.get("EMAIL_FROM")
-            and self.config.get("EMAIL_PASSWORD")
-            and self.config.get("EMAIL_TO")
-        ):
-            results["email"] = self._send_email(report_type, html_file_path)
+        # 邮件发送已改为由 admin_server 的定时调度线程统一管理，此处不再触发
 
         return results
 
@@ -752,23 +729,9 @@ class NotificationDispatcher:
         results = {}
         report_type = "RSS 订阅更新"
 
-        # 飞书
-        if self.config.get("FEISHU_WEBHOOK_URL"):
-            results["feishu"] = self._send_rss_feishu(
-                rss_items, feeds_info, proxy_url
-            )
-
-        # 钉钉
-        if self.config.get("DINGTALK_WEBHOOK_URL"):
-            results["dingtalk"] = self._send_rss_dingtalk(
-                rss_items, feeds_info, proxy_url
-            )
-
-        # 企业微信
-        if self.config.get("WEWORK_WEBHOOK_URL"):
-            results["wework"] = self._send_rss_markdown(
-                rss_items, feeds_info, proxy_url, "wework"
-            )
+        # 飞书 — 已改为由系统设置中的定时调度统一管理，此处不再触发
+        # 钉钉 — 已改为由系统设置中的定时调度统一管理，此处不再触发
+        # 企业微信 — 已改为由系统设置中的定时调度统一管理，此处不再触发
 
         # Telegram
         if self.config.get("TELEGRAM_BOT_TOKEN") and self.config.get("TELEGRAM_CHAT_ID"):
@@ -794,13 +757,7 @@ class NotificationDispatcher:
                 rss_items, feeds_info, proxy_url, "slack"
             )
 
-        # 邮件
-        if (
-            self.config.get("EMAIL_FROM")
-            and self.config.get("EMAIL_PASSWORD")
-            and self.config.get("EMAIL_TO")
-        ):
-            results["email"] = self._send_email(report_type, html_file_path)
+        # 邮件发送已改为由 admin_server 的定时调度线程统一管理，此处不再触发
 
         return results
 

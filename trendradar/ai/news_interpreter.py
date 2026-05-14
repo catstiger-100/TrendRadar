@@ -33,9 +33,9 @@ _worker_lock = threading.Lock()
 
 INTERPRET_WORKERS = max(1, min(8, int(os.environ.get("NEWS_AI_INTERPRET_WORKERS", "3") or 3)))
 AI_CONCURRENCY = max(1, min(INTERPRET_WORKERS, int(os.environ.get("NEWS_AI_INTERPRET_CONCURRENCY", "2") or 2)))
-INPUT_CONTENT_CHARS = max(0, int(os.environ.get("NEWS_AI_INTERPRET_CONTENT_CHARS", "800") or 800))
-INPUT_SUMMARY_CHARS = max(0, int(os.environ.get("NEWS_AI_INTERPRET_SUMMARY_CHARS", "300") or 300))
-OUTPUT_MAX_TOKENS = max(80, int(os.environ.get("NEWS_AI_INTERPRET_MAX_TOKENS", "180") or 180))
+INPUT_CONTENT_CHARS = max(0, int(os.environ.get("NEWS_AI_INTERPRET_CONTENT_CHARS", "240") or 240))
+INPUT_SUMMARY_CHARS = max(0, int(os.environ.get("NEWS_AI_INTERPRET_SUMMARY_CHARS", "120") or 120))
+OUTPUT_MAX_TOKENS = max(64, int(os.environ.get("NEWS_AI_INTERPRET_MAX_TOKENS", "96") or 96))
 AI_TIMEOUT_SECONDS = max(5, int(os.environ.get("NEWS_AI_INTERPRET_TIMEOUT", "12") or 12))
 AI_NUM_RETRIES = max(0, int(os.environ.get("NEWS_AI_INTERPRET_RETRIES", "0") or 0))
 AI_TEMPERATURE = float(os.environ.get("NEWS_AI_INTERPRET_TEMPERATURE", "0.1") or 0.1)
@@ -85,35 +85,18 @@ DEFAULT_SYMBOLS: List[Dict[str, str]] = [
     {"name": "10年期国债期货", "code": "T", "sector": "金融", "exchange": "中国金融期货交易所"},
 ]
 
-SYSTEM_PROMPT = """
-你是期货新闻快读助手。只输出 JSON，不要解释。
-"""
+SYSTEM_PROMPT = "期货快读助手。仅输出一行紧凑 JSON，禁止解释或代码块。"
 
-USER_PROMPT_TEMPLATE = """
-标题:
-{title}
+USER_PROMPT_TEMPLATE = """新闻
+标题:{title}
+摘要:{summary}
+正文:{content}
 
-摘要:
-{summary}
-
-正文片段:
-{content}
-
-候选品种(名称|代码):
+候选品种(name|code):
 {symbols}
 
-做快速粗略解读，最多选 3 个品种，弱相关则 symbols=[]。
-每个品种必须同时返回候选清单里的 name 和 code，不确定就不要返回该品种。
-方向只能是 看多/看空/中性，strength 为 1-5。
-一句话不超过 50 个汉字。
-返回:
-{{
-  "one_line_summary": "",
-  "symbols": [
-    {{"name": "", "code": "", "direction": "看多", "strength": 3}}
-  ]
-}}
-"""
+任务:从候选中选最相关品种(最多3个,弱相关则空数组)。direction∈{{看多,看空,中性}};strength∈1-5;summary≤25汉字。
+返回:{{"one_line_summary":"","symbols":[{{"name":"","code":"","direction":"中性","strength":3}}]}}"""
 
 
 def enqueue_article_interpretation(article_ids: List[int]) -> None:
@@ -206,9 +189,13 @@ def _process_single_article(article_id: int) -> Dict[str, Any]:
 
     config = load_config()
     ai_config = config.get("AI_FAST", {}) or {}
-    if not ai_config.get("MODEL") or not ai_config.get("API_KEY"):
+    if not ai_config.get("MODEL"):
         logger.info("AI 新闻解读跳过: 未配置快速模型")
         return {"success": False, "reason": "未配置快速 AI 模型"}
+    # 本地 provider（如 Ollama）允许没有 API_KEY，依据 REQUIRES_API_KEY 标志判定
+    if ai_config.get("REQUIRES_API_KEY", True) is not False and not ai_config.get("API_KEY"):
+        logger.info("AI 新闻解读跳过: 快速模型未配置 API Key")
+        return {"success": False, "reason": "快速 AI 模型未配置 API Key"}
 
     symbols = futures_symbol_repository.list_symbols() or DEFAULT_SYMBOLS
     if not symbols:
@@ -249,10 +236,24 @@ def _process_single_article(article_id: int) -> Dict[str, Any]:
                 max_tokens=OUTPUT_MAX_TOKENS,
                 timeout=AI_TIMEOUT_SECONDS,
                 num_retries=AI_NUM_RETRIES,
+                # 强制 JSON：避免模型输出空字符串或 markdown 包裹，显著降低解析失败率
+                response_format={"type": "json_object"},
             )
     except Exception:
         news_repository.mark_article_ai_interpret_status(article_id, news_repository.AI_INTERPRET_STATUS_FAILED)
         raise
+
+    # 空响应：模型没返回任何内容（常见于本地 Ollama 的 num_ctx 被截断、或模型不支持该任务）
+    # 不应标记为"已解读"，否则会让用户误以为是有效解读。统一标记为"解读失败"并记录原始响应用于排查。
+    if not response or not str(response).strip():
+        logger.warning(
+            "AI 新闻解读响应为空: article_id=%s model=%s（可能是 prompt 超过模型 num_ctx、"
+            "或本地模型未正确加载）",
+            article_id,
+            ai_config.get("MODEL", ""),
+        )
+        news_repository.mark_article_ai_interpret_status(article_id, news_repository.AI_INTERPRET_STATUS_FAILED)
+        return {"success": False, "reason": "模型返回空内容"}
 
     parsed = _parse_response(response)
     one_line_summary = _normalize_one_line_summary(parsed.get("one_line_summary", ""))
@@ -293,10 +294,22 @@ def enqueue_pending_interpretations(limit: int = 50) -> int:
 
 
 def _serialize_symbols(symbols: List[Dict[str, Any]]) -> str:
-    return "\n".join(
-        f"- {item.get('name', '')}|{item.get('code', '')}"
-        for item in symbols
-    )
+    """
+    按板块聚合成紧凑一行/板块，形如：
+        贵金属: 黄金|AU,白银|AG
+        有色: 铜|CU,铝|AL,...
+    相比逐行输出，tokens 约节省 35-50%。
+    """
+    groups: Dict[str, List[str]] = {}
+    order: List[str] = []
+    for item in symbols:
+        sector = (item.get("sector") or "其他").strip() or "其他"
+        piece = f"{item.get('name', '')}|{item.get('code', '')}"
+        if sector not in groups:
+            groups[sector] = []
+            order.append(sector)
+        groups[sector].append(piece)
+    return "\n".join(f"{sector}: {','.join(groups[sector])}" for sector in order)
 
 
 def _build_prompt_article(article: Dict[str, Any]) -> Dict[str, str]:
@@ -400,9 +413,9 @@ def _parse_response(response: str) -> Dict[str, Any]:
 
 def _normalize_one_line_summary(summary: str) -> str:
     text = str(summary or "").strip()
-    if len(text) <= 50:
+    if len(text) <= 30:
         return text
-    return text[:50].rstrip()
+    return text[:30].rstrip()
 
 
 def _normalize_symbol_matches(raw_symbols: Any, all_symbols: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
