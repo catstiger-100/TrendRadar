@@ -6,9 +6,12 @@ TrendRadar 管理 Web 服务。
 """
 
 import io
+import hashlib
+import html
 import json
 import os
 import re
+import time
 import shutil
 import threading
 import yaml
@@ -23,6 +26,8 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from xml.etree import ElementTree
+
+import requests
 
 from trendradar.__main__ import NewsAnalyzer
 from trendradar.ai.analyzer import AIAnalysisResult
@@ -60,6 +65,187 @@ AUTH_COOKIE_NAME = os.environ.get("AUTH_COOKIE_NAME", "trendradar_console_sessio
 
 ElementTree.register_namespace("", XLSX_MAIN_NS)
 ElementTree.register_namespace("r", XLSX_REL_NS)
+
+
+def _parse_hourly_cron_hours(schedule_expr):
+    """解析形如 '0 9,13,15 * * *' 的整点小时列表。"""
+    if not schedule_expr:
+        return []
+    parts = schedule_expr.split()
+    if len(parts) != 5 or parts[0] != "0":
+        return []
+    try:
+        return [int(h) for h in parts[1].split(",")]
+    except ValueError:
+        return []
+
+
+def _strip_html(value):
+    text = re.sub(r"<br\s*/?>", "\n", value or "", flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    return html.unescape(text).strip()
+
+
+def _truncate_to_bytes(text, max_bytes):
+    if len(text.encode("utf-8")) <= max_bytes:
+        return text
+    encoded = text.encode("utf-8")[:max_bytes]
+    return encoded.decode("utf-8", errors="ignore").rstrip() + "\n..."
+
+
+def _split_message_batches(message, max_bytes):
+    if len(message.encode("utf-8")) <= max_bytes:
+        return [message]
+
+    batches = []
+    current = ""
+    for paragraph in message.split("\n\n"):
+        candidate = f"{current}\n\n{paragraph}" if current else paragraph
+        if len(candidate.encode("utf-8")) <= max_bytes:
+            current = candidate
+            continue
+
+        if current:
+            batches.append(current)
+            current = ""
+
+        if len(paragraph.encode("utf-8")) <= max_bytes:
+            current = paragraph
+        else:
+            batches.append(_truncate_to_bytes(paragraph, max_bytes))
+
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _load_screen_report_data():
+    data_path = OUTPUT_DIR / "screen-data.json"
+    if not data_path.exists():
+        return None
+    try:
+        with open(data_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as exc:
+        print(f"[通知调度] 读取 screen-data.json 失败: {exc}")
+        return None
+
+
+def _build_scheduled_notification_message(report_data):
+    meta = report_data.get("meta", {}) or {}
+    stats = report_data.get("stats", {}) or {}
+    categories = report_data.get("categories", []) or []
+    ai_panels = report_data.get("ai_panels", []) or []
+    news = report_data.get("news", []) or []
+
+    lines = [
+        f"**TrendRadar 热点报告 - {meta.get('reportType', '当前榜单')}**",
+        f"刷新时间：{meta.get('dateLabel', '')} {meta.get('refreshTime', '')}".strip(),
+        f"当前榜单：{stats.get('newsTotal', 0)} 条；命中热点：{stats.get('hotNews', 0)} 条",
+    ]
+
+    if categories:
+        lines.extend(["", "**关键词分布**"])
+        for item in categories[:8]:
+            lines.append(f"- {item.get('name', '')}: {item.get('count', 0)}")
+
+    if ai_panels:
+        lines.extend(["", "**AI 态势摘要**"])
+        for panel in ai_panels[:3]:
+            body = _strip_html(panel.get("html", ""))
+            if not body:
+                continue
+            lines.append(f"**{panel.get('title', '')}**")
+            lines.append(_truncate_to_bytes(body, 900))
+
+    if news:
+        lines.extend(["", "**热点 Top 25**"])
+        for index, item in enumerate(news[:25], start=1):
+            keywords = "、".join(item.get("matched_keywords") or [])
+            source = item.get("source_name", "")
+            time_display = item.get("time_display", "")
+            title = item.get("title", "")
+            url = item.get("url", "")
+            line = f"{index}. {title}（{source} {time_display}；关键词：{keywords}）"
+            if url:
+                line += f"\n{url}"
+            lines.append(line)
+
+    lines.extend(["", "完整 HTML 报告已同步更新在 TrendRadar 控制台。"])
+    return "\n".join(line for line in lines if line is not None)
+
+
+def _strip_markdown_for_text(message):
+    text = re.sub(r"\*\*(.*?)\*\*", r"\1", message)
+    text = re.sub(r"\[(.*?)\]\((.*?)\)", r"\1 \2", text)
+    return text
+
+
+def _send_scheduled_channel(channel, webhook_url, message, msg_type="markdown"):
+    webhook_urls = [url.strip() for url in str(webhook_url).split(";") if url.strip()]
+    if not webhook_urls:
+        return False
+
+    if channel == "feishu":
+        max_bytes = 28000
+    elif channel == "dingtalk":
+        max_bytes = 18000
+    else:
+        max_bytes = 3600
+
+    batches = _split_message_batches(message, max_bytes)
+    headers = {"Content-Type": "application/json"}
+    all_ok = True
+
+    for account_index, url in enumerate(webhook_urls, start=1):
+        for batch_index, batch in enumerate(batches, start=1):
+            prefix = ""
+            if len(batches) > 1:
+                prefix = f"【{batch_index}/{len(batches)}】\n"
+            content = prefix + batch
+
+            if channel == "feishu":
+                payload = {"msg_type": "text", "content": {"text": _strip_markdown_for_text(content)}}
+            elif channel == "dingtalk":
+                payload = {
+                    "msgtype": "markdown",
+                    "markdown": {"title": "TrendRadar 热点报告", "text": content},
+                }
+            elif channel == "wework":
+                if str(msg_type).lower() == "text":
+                    payload = {"msgtype": "text", "text": {"content": _strip_markdown_for_text(content)}}
+                else:
+                    payload = {"msgtype": "markdown", "markdown": {"content": content}}
+            else:
+                return False
+
+            try:
+                response = requests.post(url, headers=headers, json=payload, timeout=30)
+                try:
+                    result = response.json()
+                except Exception:
+                    result = {}
+
+                success_code = result.get("errcode", result.get("code", result.get("StatusCode")))
+                ok = response.status_code == 200 and success_code in (0, "0")
+                if ok:
+                    print(f"[通知调度/{channel}] 账号{account_index} 第 {batch_index}/{len(batches)} 批发送成功")
+                else:
+                    print(
+                        f"[通知调度/{channel}] 账号{account_index} 第 {batch_index}/{len(batches)} 批发送失败: "
+                        f"status={response.status_code}, body={response.text[:300]}"
+                    )
+                    all_ok = False
+                    break
+            except Exception as exc:
+                print(f"[通知调度/{channel}] 账号{account_index} 第 {batch_index}/{len(batches)} 批发送异常: {exc}")
+                all_ok = False
+                break
+
+            if batch_index < len(batches):
+                time.sleep(1)
+
+    return all_ok
 
 
 def _xlsx_column_name(cell_ref):
@@ -1961,13 +2147,8 @@ def run(host="0.0.0.0", port=8080):
                 schedule_expr = email_cfg.get("schedule", "") or ""
                 if not schedule_expr:
                     continue
-                # 解析 cron 小时字段（格式固定为 "0 H,H,... * * *"）
-                parts = schedule_expr.split()
-                if len(parts) != 5 or parts[0] != "0":
-                    continue
-                try:
-                    trigger_hours = [int(h) for h in parts[1].split(",")]
-                except ValueError:
+                trigger_hours = _parse_hourly_cron_hours(schedule_expr)
+                if not trigger_hours:
                     continue
                 now = datetime.now()
                 current_minute = now.replace(second=0, microsecond=0)
@@ -1997,7 +2178,7 @@ def run(host="0.0.0.0", port=8080):
                         if _email_log.has_been_sent(content_md5):
                             print(f"[邮件调度] 内容未变化（md5={content_md5[:8]}…），跳过发送")
                             continue
-                        send_to_email(
+                        ok = send_to_email(
                             from_email=from_email,
                             password=password,
                             to_email=to_email,
@@ -2006,7 +2187,10 @@ def run(host="0.0.0.0", port=8080):
                             custom_smtp_server=smtp_server or None,
                             custom_smtp_port=int(smtp_port) if smtp_port else None,
                         )
-                        _email_log.record_send(from_email, to_email, content_md5)
+                        if ok:
+                            _email_log.record_send(from_email, to_email, content_md5)
+                        else:
+                            print("[邮件调度] 发送器返回失败，未记录发送日志")
                     except Exception as _exc:
                         print(f"[邮件调度] 发送失败: {_exc}")
             except Exception as _exc:
@@ -2022,7 +2206,6 @@ def run(host="0.0.0.0", port=8080):
     # 启动飞书/钉钉/企业微信定时推送线程
     def _notification_schedule_loop():
         import time as _time
-        import hashlib as _hashlib
         last_sent_minute: dict = {}  # channel -> last triggered datetime
         _time.sleep(60)
         while True:
@@ -2039,18 +2222,13 @@ def run(host="0.0.0.0", port=8080):
                 now = datetime.now()
                 current_minute = now.replace(second=0, microsecond=0)
 
-                if not schedule_expr:
-                    continue
-                parts = schedule_expr.split()
-                if len(parts) != 5 or parts[0] != "0":
-                    continue
-                try:
-                    trigger_hours = [int(h) for h in parts[1].split(",")]
-                except ValueError:
+                trigger_hours = _parse_hourly_cron_hours(schedule_expr)
+                if not trigger_hours:
                     continue
                 if now.hour not in trigger_hours or now.minute != 0:
                     continue
 
+                configured_channels = []
                 for channel in ("feishu", "dingtalk", "wework"):
                     ch_cfg = channels_cfg.get(channel, {}) or {}
                     webhook_url = ch_cfg.get("webhook_url", "") or ""
@@ -2058,23 +2236,61 @@ def run(host="0.0.0.0", port=8080):
                         continue
                     if last_sent_minute.get(channel) == current_minute:
                         continue
-                    last_sent_minute[channel] = current_minute
-                    html_path = OUTPUT_DIR / "index.html"
-                    if not html_path.exists():
-                        print(f"[通知调度/{channel}] index.html 不存在，跳过")
+                    configured_channels.append((channel, ch_cfg, webhook_url))
+
+                if not configured_channels:
+                    continue
+
+                html_path = OUTPUT_DIR / "index.html"
+                screen_data_path = OUTPUT_DIR / "screen-data.json"
+                if not html_path.exists() or not screen_data_path.exists():
+                    print("[通知调度] 报告文件不存在，先触发一次报告生成")
+                    try:
+                        analyzer = NewsAnalyzer(config=load_config())
+                        analyzer.run()
+                    except Exception as _exc:
+                        print(f"[通知调度] 报告生成失败: {_exc}")
                         continue
+
+                try:
+                    latest_mtime = max(
+                        html_path.stat().st_mtime if html_path.exists() else 0,
+                        screen_data_path.stat().st_mtime if screen_data_path.exists() else 0,
+                    )
+                    if latest_mtime < current_minute.timestamp():
+                        print(f"[通知调度] 触发报告刷新 ({now.strftime('%H:%M')})")
+                        analyzer = NewsAnalyzer(config=load_config())
+                        analyzer.run()
+                except Exception as _exc:
+                    print(f"[通知调度] 报告刷新失败: {_exc}")
+                    continue
+
+                report_data = _load_screen_report_data()
+                if not report_data:
+                    print("[通知调度] 无法读取最新报告数据，跳过本次渠道推送")
+                    continue
+
+                message = _build_scheduled_notification_message(report_data)
+                content_md5 = hashlib.md5(message.encode("utf-8")).hexdigest()
+
+                for channel, ch_cfg, webhook_url in configured_channels:
+                    last_sent_minute[channel] = current_minute
                     try:
                         from trendradar.storage import notification_log_repository as _notif_log
-                        content_md5 = _hashlib.md5(html_path.read_bytes()).hexdigest()
                         if _notif_log.has_been_sent(channel, content_md5):
                             print(f"[通知调度/{channel}] 内容未变化（md5={content_md5[:8]}…），跳过")
                             continue
                         print(f"[通知调度/{channel}] 触发定时推送 ({now.strftime('%H:%M')})")
-                        from trendradar.__main__ import NewsAnalyzer
-                        from trendradar.core import load_config as _load_config
-                        analyzer = NewsAnalyzer(config=_load_config())
-                        analyzer.run()
-                        _notif_log.record_send(channel, webhook_url, content_md5)
+                        ok = _send_scheduled_channel(
+                            channel,
+                            webhook_url,
+                            message,
+                            msg_type=ch_cfg.get("msg_type", "markdown"),
+                        )
+                        if ok:
+                            _notif_log.record_send(channel, webhook_url, content_md5)
+                        else:
+                            print(f"[通知调度/{channel}] 发送器返回失败，未记录发送日志")
                     except Exception as _exc:
                         print(f"[通知调度/{channel}] 推送失败: {_exc}")
             except Exception as _exc:
